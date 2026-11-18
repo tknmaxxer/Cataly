@@ -90,10 +90,17 @@ export function assertNativeSource(source: string, home: string, bun = process.e
   return receipt;
 }
 
-async function probe(loader: string, cwd: string, home: string, bun: string, natives: string): Promise<string> {
+async function probe(
+  loader: string,
+  cwd: string,
+  home: string,
+  bun: string,
+  natives: string,
+  version: string,
+): Promise<string> {
   const code = `const m = await import(process.argv[1]); const b = m.loadNative();
-if (typeof b.__piNativesBuildVersion !== "function" || b.__piNativesBuildVersion() !== "18.20.0") throw new Error("official native addon version differs");
-const s = m.nativeAddonStatus(); if (!s || s.version !== "18.20.0" || s.stale) throw new Error("native addon identity unavailable"); console.log(s.path);`;
+if (typeof b.__piNativesBuildVersion !== "function" || b.__piNativesBuildVersion() !== ${JSON.stringify(version)}) throw new Error("official native addon version differs");
+const s = m.nativeAddonStatus(); if (!s || s.version !== ${JSON.stringify(version)} || s.stale) throw new Error("native addon identity unavailable"); console.log(s.path);`;
   return command([bun, "-e", code, loader], cwd, { ...bundleEnv(home, bun), PI_NATIVES_DIR: natives }, 60_000);
 }
 
@@ -166,6 +173,7 @@ export async function provisionNativeSource(
       home,
       bun,
       natives,
+      bundle.lock.nativeVersion!,
     );
     if (
       !regularFile(official) ||
@@ -176,8 +184,16 @@ export async function provisionNativeSource(
     const target = join(checkout, "packages/natives/native", basename(official));
     copyFileSync(official, target);
     if (
-      resolve(await probe(join(checkout, "packages/natives/native/loader-state.js"), stage, home, bun, natives)) !==
-      target
+      resolve(
+        await probe(
+          join(checkout, "packages/natives/native/loader-state.js"),
+          stage,
+          home,
+          bun,
+          natives,
+          bundle.lock.nativeVersion!,
+        ),
+      ) !== target
     )
       throw new Error("Bound source did not load the exact version-matched official addon");
     symlinkSync(bun, join(stage, "bin/bun"));

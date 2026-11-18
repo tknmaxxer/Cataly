@@ -50,7 +50,9 @@ export function resolveConsumerOmpUlwPath(
     if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error(`Invalid consumer release lock: ${lock}`);
 
     const receipt = join(paths.manifests, `${basename(source)}.json`);
-    const required = regularFile(receipt) && JSON.parse(readFileSync(receipt, "utf8")).requirements.omp === "18.20.0";
+    const required =
+      regularFile(receipt) &&
+      ["18.20.0", "18.22.2"].includes(JSON.parse(readFileSync(receipt, "utf8")).requirements.omp);
     const bundle = required || regularFile(join(source, "omp-ulw.overlay.lock")) ? readSourceBundle(source) : undefined;
     if (bundle && bundle.lock.commit !== commit) throw new Error("Consumer release ULW base and overlay differ");
     const dependency = join(paths.dependencies, `omp-ulw-${commit}${bundle ? `-${bundle.identity}` : ""}`);
@@ -77,7 +79,7 @@ export function resolveConsumerOmpCommand(
   if (!doriHome) return configured;
   const paths = consumerPaths(home, doriHome);
   const manifest = JSON.parse(readFileSync(join(paths.manifests, `${basename(source)}.json`), "utf8"));
-  if (manifest.requirements.omp !== "18.20.0") return configured;
+  if (!["18.20.0", "18.22.2"].includes(manifest.requirements.omp)) return configured;
   const first = configured[0] ?? "omp";
   const managed =
     first === join(paths.dori, "bin/omp") ||
