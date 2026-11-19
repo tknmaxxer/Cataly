@@ -35,8 +35,14 @@
 
 ## Give it an outcome, not a script
 
-> Investigate the flaky login test. Keep the public API unchanged, run the
-> relevant tests, and open a PR with the cause and the verification results.
+<table width="100%"><tr><td>
+
+**Example request**
+
+*Investigate the flaky login test. Keep the public API unchanged, run the
+relevant tests, and open a PR with the cause and the verification results.*
+
+</td></tr></table>
 
 <table>
   <tr>
@@ -99,9 +105,14 @@ Here is the workflow on current `main`:
 
 ## Get started
 
-> [!NOTE]
-> Cataly is the project name. The CLI and launchers still use `dori`, `omp-dori`,
-> and `omp`; existing install paths and release asset names are unchanged.
+<table width="100%"><tr><td>
+
+**Note**
+
+Cataly is the project name. The CLI and launchers still use `dori`, `omp-dori`,
+and `omp`; existing install paths and release asset names are unchanged.
+
+</td></tr></table>
 
 |                | [Published preview](#try-the-published-preview) | [Current source](#work-from-current-source)          |
 | -------------- | ----------------------------------------------- | ---------------------------------------------------- |
@@ -148,11 +159,16 @@ start OMP through the generated wrapper. Follow the
 for your runtime and messenger. Use `omp-dori doctor` for a read-only setup
 check and `omp-dori status` to see your lanes.
 
-> [!IMPORTANT]
-> **Support boundary:** Slack and Telegram are retained source integrations, not
-> part of the published preview. The installer can support isolated macOS arm64 / hc
-> consumer profiles declared by a compatible release manifest; no such release is
-> claimed here. A merge to `main` does not update the published preview.
+<table width="100%"><tr><td>
+
+**Important**
+
+**Support boundary:** Slack and Telegram are retained source integrations, not
+part of the published preview. The installer can support isolated macOS arm64 / hc
+consumer profiles declared by a compatible release manifest; no such release is
+claimed here. A merge to `main` does not update the published preview.
+
+</td></tr></table>
 
 ## Documentation
 

@@ -99,9 +99,14 @@ Cataly 使用你提供的账号和权限工作。对外部系统产生影响的�
 
 ## 从这里开始
 
-> [!NOTE]
-> Cataly 是项目名称。现有的 `dori`、`omp-dori` 和 `omp` 命令、
-> 安装主目录以及已发布资源文件的名称均未更改。
+<table width="100%"><tr><td>
+
+**注意**
+
+Cataly 是项目名称。现有的 `dori`、`omp-dori` 和 `omp` 命令、
+安装主目录以及已发布资源文件的名称均未更改。
+
+</td></tr></table>
 
 ### 使用已发布的发行版
 
@@ -134,9 +139,14 @@ DORI_INSTALL_MODE=side DORI_NO_PULL=1 DORI_SRC="$PWD" bash scripts/install-sourc
 了解隔离、配置和显式启动方式。原生会话使用你自己的
 提供商认证和使用额度。
 
-> [!IMPORTANT]
-> 用户发行版的实现也支持隔离的 macOS arm64 / hc 配置，但须由经过验证的发行清单
-> 明确声明。这并不表示 macOS 发行版已经发布。Slack 和 Telegram 仍是源码版功能。
+<table width="100%"><tr><td>
+
+**重要**
+
+用户发行版的实现也支持隔离的 macOS arm64 / hc 配置，但须由经过验证的发行清单
+明确声明。这并不表示 macOS 发行版已经发布。Slack 和 Telegram 仍是源码版功能。
+
+</td></tr></table>
 
 ## 文档
 

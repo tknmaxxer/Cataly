@@ -105,9 +105,14 @@ Cataly は、ユーザーが提供するアカウントと権限で動作しま�
 
 ## はじめに
 
-> [!NOTE]
-> Cataly はプロジェクト名です。既存の `dori`、`omp-dori`、`omp` コマンド、
-> インストール先のホーム、公開済みアセットの名前は変更していません。
+<table width="100%"><tr><td>
+
+**注記**
+
+Cataly はプロジェクト名です。既存の `dori`、`omp-dori`、`omp` コマンド、
+インストール先のホーム、公開済みアセットの名前は変更していません。
+
+</td></tr></table>
 
 ### 公開済みリリースを使う
 
@@ -143,10 +148,15 @@ DORI_INSTALL_MODE=side DORI_NO_PULL=1 DORI_SRC="$PWD" bash scripts/install-sourc
 [ソースインストールガイド](docs/releases.md#source-checkouts-for-maintainers)を
 参照してください。ネイティブセッションは、自分のプロバイダー認証と利用枠を使います。
 
-> [!IMPORTANT]
-> 利用者向けの実装は、検証済みリリースマニフェストに明記されている場合、
-> 分離された macOS arm64 / hc プロファイルにも対応します。これは macOS リリースが
-> 公開済みだという意味ではありません。Slack と Telegram は引き続きソース版の機能です。
+<table width="100%"><tr><td>
+
+**重要**
+
+利用者向けの実装は、検証済みリリースマニフェストに明記されている場合、
+分離された macOS arm64 / hc プロファイルにも対応します。これは macOS リリースが
+公開済みだという意味ではありません。Slack と Telegram は引き続きソース版の機能です。
+
+</td></tr></table>
 
 ## ドキュメント
 

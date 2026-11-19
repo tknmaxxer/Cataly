@@ -112,9 +112,14 @@ e rapporti pubblici. La telemetria facoltativa può essere disabilitata con
 
 ## Per iniziare
 
-> [!NOTE]
-> Cataly è il nome del progetto. I comandi esistenti `dori`, `omp-dori` e `omp`,
-> le directory di installazione e i nomi degli asset pubblicati non sono stati rinominati.
+<table width="100%"><tr><td>
+
+**Nota**
+
+Cataly è il nome del progetto. I comandi esistenti `dori`, `omp-dori` e `omp`,
+le directory di installazione e i nomi degli asset pubblicati non sono stati rinominati.
+
+</td></tr></table>
 
 ### Usare una release pubblicata
 
@@ -150,10 +155,15 @@ Leggi la [guida all'installazione da sorgente](docs/releases.md#source-checkouts
 per isolamento, configurazione e avvio esplicito. Le sessioni native
 usano la tua autenticazione presso il provider e la tua quota di utilizzo.
 
-> [!IMPORTANT]
-> L'implementazione per gli utenti supporta anche profili isolati macOS arm64 / hc
-> quando un manifest di release verificato li dichiara. Questo non significa che sia
-> stata pubblicata una release macOS. Slack e Telegram restano funzionalità della versione sorgente.
+<table width="100%"><tr><td>
+
+**Importante**
+
+L'implementazione per gli utenti supporta anche profili isolati macOS arm64 / hc
+quando un manifest di release verificato li dichiara. Questo non significa che sia
+stata pubblicata una release macOS. Slack e Telegram restano funzionalità della versione sorgente.
+
+</td></tr></table>
 
 ## Documentazione
 

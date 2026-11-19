@@ -112,9 +112,14 @@ oder `DO_NOT_TRACK=1` deaktivieren.
 
 ## Erste Schritte
 
-> [!NOTE]
-> Cataly ist der Projektname. Die bestehenden Befehle `dori`, `omp-dori` und `omp`,
-> Installationsverzeichnisse und Namen veröffentlichter Assets wurden nicht umbenannt.
+<table width="100%"><tr><td>
+
+**Hinweis**
+
+Cataly ist der Projektname. Die bestehenden Befehle `dori`, `omp-dori` und `omp`,
+Installationsverzeichnisse und Namen veröffentlichter Assets wurden nicht umbenannt.
+
+</td></tr></table>
 
 ### Ein veröffentlichtes Release nutzen
 
@@ -150,10 +155,15 @@ Lies die [Anleitung zur Source-Installation](docs/releases.md#source-checkouts-f
 zu Isolation, Konfiguration und ausdrücklichem Start.
 Native Sessions nutzen deine eigene Provider-Authentifizierung und dein Nutzungskontingent.
 
-> [!IMPORTANT]
-> Die Endnutzer-Implementierung unterstützt auch isolierte macOS-arm64/hc-Profile,
-> wenn ein geprüftes Release-Manifest sie ausweist. Das bedeutet nicht, dass ein
-> macOS-Release veröffentlicht wurde. Slack und Telegram bleiben Funktionen der Quellcode-Version.
+<table width="100%"><tr><td>
+
+**Wichtig**
+
+Die Endnutzer-Implementierung unterstützt auch isolierte macOS-arm64/hc-Profile,
+wenn ein geprüftes Release-Manifest sie ausweist. Das bedeutet nicht, dass ein
+macOS-Release veröffentlicht wurde. Slack und Telegram bleiben Funktionen der Quellcode-Version.
+
+</td></tr></table>
 
 ## Dokumentation
 
