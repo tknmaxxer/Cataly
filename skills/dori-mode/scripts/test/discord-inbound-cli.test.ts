@@ -68,6 +68,7 @@ posix("public Discord intake defaults to three seconds and honors --loop in minu
       "INBOUND_READY discord owner=10 channel=20 bot=99",
       'INBOUND discord 20 101 from=owner ref=- "first owner text"',
       'INBOUND discord 20 103 from=owner ref=101 "owner reply"',
+      'INBOUND_REPLY discord 20 103 {"id":"101","author":null,"text":null,"status":"unresolved"}',
     ]);
     const receipt = out.split("\n").find((line) => line.startsWith("DISCORD_INBOUND_QA "));
     expect(JSON.parse(receipt?.slice("DISCORD_INBOUND_QA ".length) ?? "null")).toEqual({

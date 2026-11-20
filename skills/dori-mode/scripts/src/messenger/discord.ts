@@ -87,8 +87,8 @@ export class Discord {
 
   /**
    * Posts the text as consecutive messages of at most 2000 characters (`splitForDiscord`) and returns their IDs in
-   * order. `replyTo` makes the first message a reply that pings nobody; a deleted target still posts, unlinked. A failed
-   * part stops the rest; its error names the parts already posted, which stay.
+   * order. `replyTo` binds the first message to the same physical channel and pings nobody. A missing target fails
+   * instead of posting unlinked. A failed part stops the rest; its error names the parts already posted, which stay.
    */
   async send(channelId: string, content: string, opts: { readonly replyTo?: string } = {}): Promise<string[]> {
     return (await this.sendDelivery(channelId, content, opts)).ids;
@@ -117,7 +117,9 @@ export class Discord {
         const sent = await this.call<PostedMessage | null>("POST", path, {
           content: part,
           allowed_mentions: { parse: [] },
-          ...(reply === undefined ? {} : { message_reference: { message_id: reply, fail_if_not_exists: false } }),
+          ...(reply === undefined
+            ? {}
+            : { message_reference: { message_id: reply, channel_id: channelId, fail_if_not_exists: true } }),
         });
         if (reply !== undefined) replyConfirmed = confirmedReply(sent, channelId, reply);
         // A parsed reply response can lack proof. Retain the other part IDs without retrying it or settling the owe.

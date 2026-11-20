@@ -2,11 +2,19 @@
 
 ## Unreleased
 
+- `dori park` and `dori reopen` accept saved OMP sessions whose first line is OMP's fixed-width title slot (v1) before the session header; any other leading record, a second title, a missing header, or a different session id or cwd is still refused.
+
+- Discord replies retain their original message ID and copied snapshot, distinguish unresolved, unavailable and observed-empty context, and reject reference or snapshot channel mismatches before owner delivery or checkpoint. Outgoing replies bind to the exact physical channel or thread and require the original target to exist; a deleted or other-channel target no longer silently becomes an unlinked post. Normal `INBOUND` grammar, split-message ordering and non-pinging mentions remain unchanged.
+
+- `dori decision` records who may settle each choice: `ask --kind routine` (reversible, in scope, at least two options, in the work's thread) lets the lead record `decision choose <id> <N> --reason TEXT --source REF --thread REF` after posting its choice and reason in that thread, while unmarked and pre-existing decisions stay owner-only; `list` shows `kind` and the answer's `authority`, `digest` shows `kind`, the same rules hold for hand-written or raced records, and no decision answer or choice grants a native execution approval.
+
 - Require per-PR copied/adapted source provenance, concept-only attribution, and component-specific license/notice preservation.
 
 - Record observed source/native/ULW identities, environment, commands, receipts and unverified surfaces together in PR and release evidence.
 
 - The scripts reference documents what Discord, Slack and Telegram inbound intake can recover on first install, for threads created while offline, after edits behind the saved position, and when platform retention or rate limits interrupt intake. Runtime behavior is unchanged.
+
+- Unreleased (source only): Telegram inbound now verifies bot identity and an empty webhook before readiness or polling; startup rejection and interruption leave the cursor and existing webhook untouched.
 
 - Exercise native prompt rendering across role, ULW, workflow, profile, child-tool, and compaction boundaries in an isolated offline composition matrix.
 
