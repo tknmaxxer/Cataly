@@ -120,7 +120,7 @@ Cataly はプロジェクト名です。既存の `dori`、`omp-dori`、`omp` �
 契約が固定されています。リポジトリ名を変えても、それらのアセットが更新されたり、
 新しいプラットフォームがサポート対象になったりするわけではありません。
 
-[検証済みの特定リリース導入手順](docs/releases.md#prerequisites-and-trust)に従ってください。
+[検証済みの特定リリース導入手順](https://github.com/vntrevx/Cataly/blob/v0.1.2/docs/releases.md#prerequisites-and-trust)に従ってください。
 前提条件、チェックサム、インストール、自分の認証、明示的な起動、任意で有効にする
 Discord モニターを説明しています。特定のリリースを、任意の `main`
 インストーラーで代用しないでください。

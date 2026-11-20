@@ -113,7 +113,7 @@ Cataly 是项目名称。现有的 `dori`、`omp-dori` 和 `omp` 命令、
 现有的 **v0.1.2 预发行版**具有不可变的 Linux x64 / herdr / Discord 契约。
 仓库改名不会升级这些资源文件，也不意味着开始支持新的平台。
 
-请遵循[已验证的精确版本安装步骤](docs/releases.md#prerequisites-and-trust)。
+请遵循[已验证的精确版本安装步骤](https://github.com/vntrevx/Cataly/blob/v0.1.2/docs/releases.md#prerequisites-and-trust)。
 其中涵盖前提条件、校验和、安装、你自己的认证、显式启动，
 以及选择启用的 Discord 监控器。不要用任意 `main` 安装器替代精确的发行版。
 

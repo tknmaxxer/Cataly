@@ -127,7 +127,7 @@ La **prerelease v0.1.2** esistente ha un contratto immutabile per
 Linux x64 / herdr / Discord. Rinominare il repository non aggiorna quegli asset
 né introduce il supporto per nuove piattaforme.
 
-Segui la [guida verificata alla release esatta](docs/releases.md#prerequisites-and-trust).
+Segui la [guida verificata alla release esatta](https://github.com/vntrevx/Cataly/blob/v0.1.2/docs/releases.md#prerequisites-and-trust).
 Include prerequisiti, checksum, installazione, la tua autenticazione,
 avvio esplicito e monitor Discord da abilitare su scelta dell'utente.
 Non sostituire una release esatta con un installer arbitrario di `main`.
