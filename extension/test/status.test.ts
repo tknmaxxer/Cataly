@@ -58,46 +58,50 @@ test("HC receives native role-session status, approval holds and role-removal in
   }
 });
 
-test("HC lead health samples exact editor emptiness without persisting a draft", async () => {
-  const stateDir = useConfig(join(import.meta.dir, "fake-ulw.ts"));
-  const previousTerminal = process.env.HC_TERMINAL_ID;
-  process.env.HC_TERMINAL_ID = "t8";
-  const sessionId = "hc-lead-editor";
-  const pi = await load({ session: { id: sessionId, entries: [] }, flags: { "cataly-role": "cataly" }, mode: "tui" });
-  const context = pi.ctx;
-  let text = " ";
-  pi.ctx = () => {
-    const ctx = context();
-    return {
-      ...ctx,
-      isIdle: () => true,
-      hasPendingMessages: () => false,
-      shutdown: () => {
-        throw new Error("no exit was requested");
-      },
-      ui: { ...ctx.ui, getEditorText: () => text },
+// The runtime health reader enforces POSIX owner/mode bits, and hc has no Windows runtime.
+test.skipIf(process.platform === "win32")(
+  "HC lead health samples exact editor emptiness without persisting a draft",
+  async () => {
+    const stateDir = useConfig(join(import.meta.dir, "fake-ulw.ts"));
+    const previousTerminal = process.env.HC_TERMINAL_ID;
+    process.env.HC_TERMINAL_ID = "t8";
+    const sessionId = "hc-lead-editor";
+    const pi = await load({ session: { id: sessionId, entries: [] }, flags: { "cataly-role": "cataly" }, mode: "tui" });
+    const context = pi.ctx;
+    let text = " ";
+    pi.ctx = () => {
+      const ctx = context();
+      return {
+        ...ctx,
+        isIdle: () => true,
+        hasPendingMessages: () => false,
+        shutdown: () => {
+          throw new Error("no exit was requested");
+        },
+        ui: { ...ctx.ui, getEditorText: () => text },
+      };
     };
-  };
-  const health = () => readRuntimeHealth({ stateDir, pane: "t8", sessionId });
-  try {
-    await pi.emit("session_start");
-    expect(health()).toMatchObject({ pid: process.pid, editorEmpty: false });
-    const offer = health()?.hcExitToken;
-    expect(offer).toBeString();
-    text = "";
-    const deadline = Date.now() + 2_000;
-    while (health()?.editorEmpty !== true && Date.now() < deadline) await Bun.sleep(25);
-    expect(health()?.editorEmpty).toBe(true);
-    expect(health()?.hcExitToken).toBe(offer);
-    await pi.emit("tool_approval_requested", { toolCallId: "approval" });
-    expect(health()?.editorEmpty).toBe(false);
-    expect(health()?.hcExitToken).not.toBe(offer);
-  } finally {
-    await pi.emit("session_shutdown");
-    if (previousTerminal === undefined) delete process.env.HC_TERMINAL_ID;
-    else process.env.HC_TERMINAL_ID = previousTerminal;
-  }
-});
+    const health = () => readRuntimeHealth({ stateDir, pane: "t8", sessionId });
+    try {
+      await pi.emit("session_start");
+      expect(health()).toMatchObject({ pid: process.pid, editorEmpty: false });
+      const offer = health()?.hcExitToken;
+      expect(offer).toBeString();
+      text = "";
+      const deadline = Date.now() + 2_000;
+      while (health()?.editorEmpty !== true && Date.now() < deadline) await Bun.sleep(25);
+      expect(health()?.editorEmpty).toBe(true);
+      expect(health()?.hcExitToken).toBe(offer);
+      await pi.emit("tool_approval_requested", { toolCallId: "approval" });
+      expect(health()?.editorEmpty).toBe(false);
+      expect(health()?.hcExitToken).not.toBe(offer);
+    } finally {
+      await pi.emit("session_shutdown");
+      if (previousTerminal === undefined) delete process.env.HC_TERMINAL_ID;
+      else process.env.HC_TERMINAL_ID = previousTerminal;
+    }
+  },
+);
 
 test.each(["absent", "retired", "live-owner", "replaced"] as const)(
   "HC status writes respect %s pane ownership",
