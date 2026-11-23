@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { saveActiveDeployment } from "./deployment-active.ts";
 import { matchesDeploymentConfigHash } from "./deployment-config.ts";
 import { ownReleaseRoot, saveDeploymentJson, switchPointer } from "./deployment-files.ts";
+import { HcTerminalChanged } from "./deployment-hc.ts";
 import { captureHandoff, captureStartedMonitors, prepareLauncher } from "./deployment-handoff.ts";
 import { observeDeploymentHealth, waitDeploymentHealth } from "./deployment-health.ts";
 import { assertPreparedLayout, refreshBusyHandoff, verifyBusyHold } from "./deployment-hold.ts";
@@ -16,6 +17,7 @@ import { acquireRestartLock, DeploymentBusy, DeploymentHeld, DeploymentRetryable
 import { restartDeployment } from "./deployment-restart.ts";
 import { readRestartIntent } from "./deployment-restart-state.ts";
 import { rollbackDeployment, waitLaunchedProcess } from "./deployment-rollback.ts";
+import { requireShell } from "./deployment-shell.ts";
 import type { DeploymentConfig, DeploymentInput, DeploymentRecord } from "./deployment-types.ts";
 import { digest } from "./source.ts";
 
@@ -156,6 +158,8 @@ export async function deployRelease(
     }
     if (signal?.aborted) throw new DeploymentHeld("deployment interrupted after stop");
     if (current.step === "switch") {
+      if (config.runtime === "hc")
+        await requireShell(config, cli, undefined, undefined, current.oldRuntime?.hcTerminal);
       current.status = "switching";
       save(current);
       for (const pointer of current.pointers ?? []) switchPointer(pointer);
@@ -194,8 +198,10 @@ export async function deployRelease(
     return current;
   } catch (error) {
     current.error = error instanceof DeploymentHeld ? error.message : "release preparation or native startup failed";
-    if (holdPendingNativeUiExit(current)) {
-      current.retryableHold = true;
+    if (error instanceof HcTerminalChanged || holdPendingNativeUiExit(current)) {
+      current.status = "held";
+      if (error instanceof HcTerminalChanged) delete current.retryableHold;
+      else current.retryableHold = true;
       if (releaseLock) save(current);
       else persist(current);
       return current;
@@ -206,7 +212,7 @@ export async function deployRelease(
         saveActiveDeployment(config, rolledBack, true);
         return rolledBack;
       } catch (rollbackError) {
-        current.status = "failed";
+        current.status = rollbackError instanceof HcTerminalChanged ? "held" : "failed";
         current.rollbackError =
           rollbackError instanceof DeploymentHeld ? rollbackError.message : "rollback did not restore verified service";
       }

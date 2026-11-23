@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { readPaneState } from "../../skills/cataly-mode/scripts/src/lane-state.ts";
 import { Registry, RESERVED_LANE_KEY, statusOf } from "../../skills/cataly-mode/scripts/src/registry.ts";
+import { requireHcTerminal } from "./deployment-hc.ts";
 import { readMonitorSet } from "./deployment-monitors.ts";
 import { captureRuntime, nativeCli } from "./deployment-native.ts";
 import { assertNativeUiIdle } from "./deployment-native-ui.ts";
@@ -26,6 +27,7 @@ export async function sourceIdle(
       expected.startedAt !== runtime.startedAt)
   )
     throw new DeploymentHeld("lead identity changed before the source operation");
+  if (expected && deployment.runtime === "hc") requireHcTerminal(expected.hcTerminal, runtime.hcTerminal);
   if (deployment.runtime === "hc") await assertNativeUiIdle(deployment, cli, runtime);
   return sourceIdleNow(config, runtime);
 }

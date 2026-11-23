@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { requireShell } from "../src/update/deployment-native.ts";
+import { requireShell } from "../src/update/deployment-shell.ts";
 import { DeploymentHeld, sameProcess } from "../src/update/deployment-process.ts";
 import { foregroundFixture } from "./update-deploy-foreground-setup.ts";
 

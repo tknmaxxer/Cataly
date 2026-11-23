@@ -68,18 +68,30 @@ test("HC lead health samples exact editor emptiness without persisting a draft",
   let text = " ";
   pi.ctx = () => {
     const ctx = context();
-    return { ...ctx, isIdle: () => true, ui: { ...ctx.ui, getEditorText: () => text } };
+    return {
+      ...ctx,
+      isIdle: () => true,
+      hasPendingMessages: () => false,
+      shutdown: () => {
+        throw new Error("no exit was requested");
+      },
+      ui: { ...ctx.ui, getEditorText: () => text },
+    };
   };
   const health = () => readRuntimeHealth({ stateDir, pane: "t8", sessionId });
   try {
     await pi.emit("session_start");
     expect(health()).toMatchObject({ pid: process.pid, editorEmpty: false });
+    const offer = health()?.hcExitToken;
+    expect(offer).toBeString();
     text = "";
     const deadline = Date.now() + 2_000;
     while (health()?.editorEmpty !== true && Date.now() < deadline) await Bun.sleep(25);
     expect(health()?.editorEmpty).toBe(true);
+    expect(health()?.hcExitToken).toBe(offer);
     await pi.emit("tool_approval_requested", { toolCallId: "approval" });
     expect(health()?.editorEmpty).toBe(false);
+    expect(health()?.hcExitToken).not.toBe(offer);
   } finally {
     await pi.emit("session_shutdown");
     if (previousTerminal === undefined) delete process.env.HC_TERMINAL_ID;

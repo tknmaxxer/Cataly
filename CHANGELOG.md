@@ -8,7 +8,7 @@
 
 - Routine monitor readiness/heartbeat acknowledgements, pending report notices and confirmed nudges are retained for the next turn without waking Cataly. Other output, mixed batches, process exits and output preservation warnings still wake; session ownership, filters and byte limits are unchanged.
 
-- Support opt-in CI-gated source updates and managed lead restarts on hc. Require the same idle lead, an exact screen and fresh empty-editor evidence before a normal UI exit; resume the same session under its surviving shell. Older leads without the editor evidence and direct terminal launches hold without stopping.
+- Support opt-in CI-gated source updates and managed lead restarts on hc. The lead rechecks the observed turn, idle state, approvals and editor before requesting its own graceful exit. Resume the same session only under the journaled terminal and root shell. Older leads without the exit handshake and direct terminal launches hold without stopping.
 
 - Add optional schedule command deadlines with a five-second termination grace and explicit timed-out receipts; existing schedules remain unlimited unless configured. Remove timeout-bearing jobs with the current CLI before downgrading to an older reader. Related to #214.
 

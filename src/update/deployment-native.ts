@@ -3,6 +3,8 @@ import { type DeploymentCli, hcDeploymentCli, herdrDeploymentCli } from "./deplo
 import { runtimeBinary } from "./deployment-config.ts";
 import { readPaneState } from "../../skills/cataly-mode/scripts/src/lane-state.ts";
 import type { Exec } from "../runtime/exec.ts";
+import { HcTerminalChanged, requireHcTerminal } from "./deployment-hc.ts";
+import { discardHcExit } from "./deployment-hc-exit.ts";
 import type { LegacyRollbackForeground } from "./deployment-legacy-monitors.ts";
 import { attestMonitorForeground } from "./deployment-monitor-receipts.ts";
 import { assertMonitorStopSafe } from "./deployment-monitors.ts";
@@ -21,13 +23,12 @@ import {
   underProcess,
 } from "./deployment-process.ts";
 import { consumeQuiesceCheckpoint, verifyQuiesceCheckpoint } from "./deployment-quiesce.ts";
-import { bareRootShell, shellRejection } from "./deployment-shell.ts";
+import { requireShell } from "./deployment-shell.ts";
 import { terminateBoundProcess } from "./deployment-signal.ts";
 import type {
   DeploymentConfig,
   DeploymentRecord,
   MonitorProcessIdentity,
-  ProcessIdentity,
   RuntimeIdentity,
 } from "./deployment-types.ts";
 import { digest, sourceManifest } from "./source.ts";
@@ -91,6 +92,17 @@ export async function captureRuntime(
     throw new DeploymentHeld("native Cataly identity, idle state or approval boundary did not match");
   const identity = processIdentity(state.pid);
   if (!identity) throw new DeploymentHeld("native PID identity is unavailable");
+  const terminal =
+    config.runtime === "hc" ? (await cli.foreground(config.pane, "deployment held")).hcTerminal : undefined;
+  if (
+    config.runtime === "hc" &&
+    (!terminal ||
+      terminal.root.pid !== current.rootPid ||
+      terminal.root.pid === state.pid ||
+      !underProcess(state.pid, terminal.root.pid) ||
+      !sameProcess(terminal.root))
+  )
+    throw new HcTerminalChanged("hc native owner has no recoverable terminal/root shell identity");
   const key = JSON.stringify(identity);
   let executableHash = executableHashes.get(key);
   if (!executableHash) {
@@ -107,6 +119,7 @@ export async function captureRuntime(
     startedAt: state.startedAt,
     cwd: state.cwd,
     executableHash,
+    ...(terminal ? { hcTerminal: terminal } : {}),
   };
   if (
     rollback &&
@@ -162,7 +175,7 @@ export async function stopRuntime(
   if (!expected) throw new DeploymentHeld("native stop has no journaled owner identity");
   if (!sameProcess(expected)) {
     if (processIdentity(expected.pid)) throw new DeploymentHeld("native PID has been reused");
-    await requireShell(config, cli, expected);
+    await requireShell(config, cli, expected, undefined, expected.hcTerminal);
     assertRetryDeadline(config, record);
     if (!forwardStopStarted(config, record)) finalAdmission?.();
     record.stopRequestedAt ??= new Date().toISOString();
@@ -173,8 +186,11 @@ export async function stopRuntime(
   }
   const ui = config.nativeStopMode === "ui";
   let uiFailure: DeploymentHeld | undefined;
+  let exitToken: string | undefined;
+  let until = Date.now() + config.stopTimeoutMs;
   if (!ui || !record.nativeUiExitRequestedAt) {
     const actual = await captureRuntime(config, cli, false, allowQuiesce ? record : undefined);
+    if (config.runtime === "hc") requireHcTerminal(expected.hcTerminal, actual.hcTerminal);
     if (
       !sameProcess(expected, actual) ||
       actual.startedAt !== expected.startedAt ||
@@ -189,7 +205,7 @@ export async function stopRuntime(
     }
     if (record.oldSourceHash && sourceManifest(realpathSync(config.liveSource)).hash !== record.oldSourceHash)
       throw new DeploymentHeld("previous source changed after its handoff journal");
-    if (ui) await assertNativeUiIdle(config, cli, expected, record);
+    const offer = ui ? await assertNativeUiIdle(config, cli, expected, record) : undefined;
     assertMonitorStopSafe(config, record);
     assertRetryDeadline(config, record);
     if (!forwardStopStarted(config, record)) finalAdmission?.();
@@ -199,14 +215,24 @@ export async function stopRuntime(
     if (ui) {
       record.nativeUiExitRequestedAt = new Date().toISOString();
       persist(record);
-      uiFailure = await requestNativeUiExit(cli, config.pane);
-    } else terminateBoundProcess(expected);
+      exitToken = offer?.token;
+      until = Date.now() + config.stopTimeoutMs;
+      uiFailure = await requestNativeUiExit(cli, config, expected, offer, until);
+      // Keep herdr's shell observation window independent of its key acknowledgement.
+      if (!offer) until = Date.now() + config.stopTimeoutMs;
+    } else {
+      terminateBoundProcess(expected);
+      until = Date.now() + config.stopTimeoutMs;
+    }
   }
-  const until = Date.now() + config.stopTimeoutMs;
-  while (sameProcess(expected) && Date.now() < until) await Bun.sleep(50);
-  if (sameProcess(expected)) throw uiFailure ?? new DeploymentHeld("native runtime did not stop within its bound");
-  if (processIdentity(expected.pid)) throw new DeploymentHeld("native PID was reused after stop");
-  await requireShell(config, cli, expected, until);
+  try {
+    while (sameProcess(expected) && Date.now() < until) await Bun.sleep(50);
+    if (sameProcess(expected)) throw uiFailure ?? new DeploymentHeld("native runtime did not stop within its bound");
+    if (processIdentity(expected.pid)) throw new DeploymentHeld("native PID was reused after stop");
+    await requireShell(config, cli, expected, until, expected.hcTerminal);
+  } finally {
+    if (exitToken) discardHcExit(config.stateDir, exitToken);
+  }
 }
 
 export async function stopRecordedMonitors(
@@ -220,31 +246,4 @@ export async function stopRecordedMonitors(
   const until = Date.now() + config.stopTimeoutMs;
   while (monitors.some((identity) => sameProcess(identity)) && Date.now() < until) await Bun.sleep(50);
   if (monitors.some((identity) => sameProcess(identity))) throw new DeploymentHeld("owned old monitors did not stop");
-}
-
-export async function requireShell(
-  config: DeploymentConfig,
-  cli: DeploymentCli,
-  stopped?: ProcessIdentity,
-  until = Date.now() + config.stopTimeoutMs,
-): Promise<void> {
-  for (;;) {
-    if (stopped && Date.now() >= until) throw new DeploymentHeld("target pane is not an observed shell");
-    const seen = await cli.foreground(config.pane, "deployment held");
-    if (stopped) {
-      const owner = readPaneState(config.stateDir, config.pane);
-      if (processIdentity(stopped.pid))
-        throw shellRejection("native owner changed while awaiting shell (stopped PID is live)", seen, stopped.pid);
-      if (owner && processIdentity(owner.pid))
-        throw shellRejection("native owner changed while awaiting shell (pane owner is live)", seen, owner.pid, owner);
-      const conflict = seen.processes?.find(
-        (p) => p.pid !== undefined && (!seen.shell || p.pid !== seen.rootPid) && processIdentity(p.pid),
-      );
-      if (conflict)
-        throw shellRejection("native owner changed while awaiting shell (foreground PID is live)", seen, conflict.pid);
-    }
-    if (bareRootShell(config, seen) && (!stopped || Date.now() < until)) return;
-    if (!stopped || Date.now() >= until) throw shellRejection("target pane is not an observed shell", seen);
-    await Bun.sleep(Math.min(50, until - Date.now()));
-  }
 }

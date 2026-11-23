@@ -48,6 +48,11 @@ export type ProcessIdentity = {
   readonly imageDev?: string;
   readonly imageIno?: string;
 };
+export type HcTerminalIdentity = {
+  readonly address: string;
+  readonly createdMs: number;
+  readonly root: ProcessIdentity;
+};
 export type RuntimeIdentity = ProcessIdentity & {
   readonly pane: string;
   readonly sessionId: string;
@@ -60,6 +65,7 @@ export type RuntimeIdentity = ProcessIdentity & {
   readonly executableHash?: string;
   readonly nativeVersion?: string;
   readonly entrypointHash?: string;
+  readonly hcTerminal?: HcTerminalIdentity;
 };
 export type ToolchainReceipt = {
   readonly omp: string;
@@ -167,5 +173,7 @@ export type RuntimeHealth = {
   readonly extensionHash: string;
   /** Present only when the interactive hc lead can sample the native editor buffer. */
   readonly editorEmpty?: boolean;
+  /** Incarnation of the current owner-side exit admission, not a grant to stop. */
+  readonly hcExitToken?: string;
   readonly monitors: readonly (MonitorSpec & { readonly pid: number; readonly startTicks: string })[];
 };

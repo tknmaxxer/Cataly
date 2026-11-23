@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { HcOwnerExit } from "../src/update/deployment-hc-exit.ts";
 import { processIdentity } from "../src/update/deployment-process.ts";
 import type { MonitorSpec, RuntimeHealth } from "../src/update/deployment-types.ts";
 import type { Monitors } from "./monitor.ts";
@@ -14,6 +15,7 @@ type State = {
   readonly wanted: ReadonlyMap<string, MonitorSpec>;
   readonly presetLoaded: boolean;
   readonly editorEmpty?: () => boolean;
+  readonly shutdownIfIdle?: () => void;
 };
 const source = dirname(realpathSync(import.meta.dir));
 const extensionHash = createHash("sha256")
@@ -24,6 +26,7 @@ const extensionHash = createHash("sha256")
 export class RuntimeHealthWriter {
   #state: State | undefined;
   #timer: Timer | undefined;
+  #exit: HcOwnerExit | undefined;
   readonly #monitors: Monitors;
 
   constructor(monitors: Monitors) {
@@ -32,6 +35,7 @@ export class RuntimeHealthWriter {
 
   update(state: State): void {
     this.#state = state;
+    this.#exit = state.shutdownIfIdle ? new HcOwnerExit() : undefined;
     this.#write();
     if (!this.#timer) {
       this.#timer = setInterval(() => this.#write(), 1_000);
@@ -44,6 +48,7 @@ export class RuntimeHealthWriter {
     this.#timer = undefined;
     const state = this.#state;
     this.#state = undefined;
+    this.#exit = undefined;
     if (!state) return;
     const path = join(state.stateDir, "runtime", `${encodeURIComponent(state.paneId)}.json`);
     try {
@@ -57,6 +62,7 @@ export class RuntimeHealthWriter {
   #write(): void {
     const state = this.#state;
     if (!state) return;
+    const exit = this.#exit;
     const monitors = this.#monitors.list().flatMap((running) => {
       const spec = state.wanted.get(running.name);
       const identity = processIdentity(running.pid);
@@ -74,6 +80,7 @@ export class RuntimeHealthWriter {
       source,
       extensionHash,
       ...(state.editorEmpty ? { editorEmpty: state.editorEmpty() } : {}),
+      ...(exit?.available ? { hcExitToken: exit.token } : {}),
       monitors,
     };
     const path = join(state.stateDir, "runtime", `${encodeURIComponent(state.paneId)}.json`);
@@ -81,5 +88,15 @@ export class RuntimeHealthWriter {
     const temporary = `${path}.${process.pid}.tmp`;
     writeFileSync(temporary, JSON.stringify(health), { mode: 0o600 });
     renameSync(temporary, path);
+    if (exit) {
+      void exit.poll({
+        ...state,
+        pane: state.paneId,
+        pid: process.pid,
+        shutdownIfIdle: () => {
+          if (this.#exit === exit) state.shutdownIfIdle?.();
+        },
+      });
+    }
   }
 }

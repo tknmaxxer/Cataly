@@ -680,7 +680,18 @@ export default async function ompCataly(pi: CatalyApi): Promise<void> {
       modelReadback: modelReadback(ctx),
       native: { observedAt: observed.observedAt, jobs: observed.jobs, approvals: [...approvals.values()] },
     });
-    if (role === "cataly")
+    if (role === "cataly") {
+      const terminal = process.env.HC_TERMINAL_ID;
+      const ownerSession = session;
+      const emptyEditor = () =>
+        role === "cataly" &&
+        session === ownerSession &&
+        ctx.sessionManager.getSessionId() === ownerSession.id &&
+        process.env.HC_TERMINAL_ID === terminal &&
+        approvals.size === 0 &&
+        agentStatus === "idle" &&
+        ctx.isIdle?.() === true &&
+        ctx.ui.getEditorText?.() === "";
       runtimeHealth.update({
         stateDir,
         paneId,
@@ -689,17 +700,18 @@ export default async function ompCataly(pi: CatalyApi): Promise<void> {
         startedAt: session.startedAt,
         wanted: recordedMonitors(ctx.sessionManager.getBranch()),
         presetLoaded: loadError === undefined,
-        ...(process.env.HC_TERMINAL_ID && ctx.mode === "tui" && ctx.ui.getEditorText
+        ...(terminal === paneId && ctx.mode === "tui" && ctx.ui.getEditorText ? { editorEmpty: emptyEditor } : {}),
+        ...(terminal === paneId && ctx.mode === "tui" && ctx.shutdown && ctx.hasPendingMessages
           ? {
-              editorEmpty: () =>
-                approvals.size === 0 &&
-                agentStatus === "idle" &&
-                ctx.isIdle?.() === true &&
-                ctx.ui.getEditorText?.() === "",
+              shutdownIfIdle: () => {
+                // No await between native admission and the host's graceful shutdown request.
+                if (ctx.hasPendingMessages?.() === false && !ctx.getPendingPlanReview?.() && emptyEditor())
+                  ctx.shutdown?.();
+              },
             }
           : {}),
       });
-    else runtimeHealth.stop();
+    } else runtimeHealth.stop();
     paneWritten = paneId;
     if (process.env.HC_TERMINAL_ID) {
       const status = approvals.size > 0 ? "blocked" : agentStatus;

@@ -1,16 +1,18 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writePaneState } from "../skills/cataly-mode/scripts/src/lane-state.ts";
 import { parseDeploymentConfig } from "../src/update/deployment.ts";
 import { hcDeploymentCli } from "../src/update/deployment-cli.ts";
 import { ownReleaseRoot } from "../src/update/deployment-files.ts";
 import { launchedProcess, launchRuntime, stopLaunchedProcess } from "../src/update/deployment-launch.ts";
-import { captureRuntime, requireShell, stopRuntime } from "../src/update/deployment-native.ts";
+import { captureRuntime, stopRuntime } from "../src/update/deployment-native.ts";
 import { DeploymentHeld, sameProcess } from "../src/update/deployment-process.ts";
+import { requireShell } from "../src/update/deployment-shell.ts";
 import type { DeploymentRecord, RuntimeIdentity } from "../src/update/deployment-types.ts";
 import { digest } from "../src/update/source.ts";
 import { applyHcSource } from "./e2e-hc-deploy-cli.ts";
+import { holdHcExitRace, holdHcReplacement, writeHcOwner } from "./e2e-hc-deploy-fixture.ts";
 import { catalyEnv, hc, hcBin, newHome, screen, session, startCore, stopCore, until } from "./e2e-hc-setup.ts";
 
 // Real hc, one isolated core: the foreground group a managed replacement reads is rebuilt from the kernel.
@@ -124,23 +126,10 @@ test.skipIf(!hcBin)(
       },
       root,
     );
-    writeFileSync(
-      config.omp,
-      `#!${process.execPath}
-let draft = "owner draft";
-const draw = () => process.stdout.write("\\x1b[2J\\x1b[H π > ⬢ GPT-4o > workspace ▶────6%────128K─\\r\\n╰─ " +
-  (draft || "    ⇧⇥ to change thinking effort") + "\\r\\n");
-process.stdin.setRawMode(true);
-process.stdin.on("data", (input) => {
-  if (input.includes(21)) { draft = ""; draw(); }
-  if (input.includes(32)) { draft = "   "; draw(); }
-  if (input.includes(4) && !draft) process.exit(0);
-});
-process.stdout.write("\\x1b]7501;state=idle:app=omp\\x1b\\\\");
-draw();
-`,
-      { mode: 0o700 },
-    );
+    const quitKey = join(root, "quit-key");
+    const offerPath = join(root, "offer");
+    const startedPath = join(root, "owner-started-at");
+    writeHcOwner(config, env, offerPath, quitKey, startedPath);
     ownReleaseRoot(config);
     const nativeConfig = join(config.releaseRoot, "native-config.json");
     writeFileSync(nativeConfig, JSON.stringify({ update: { auto: false } }), { mode: 0o600 });
@@ -165,16 +154,18 @@ draw();
       JSON.stringify({ version: 1, sessionId: config.sessionId, monitors: [] }),
       { mode: 0o600 },
     );
-    await until("a bare shell", async () => ((await requireShell(config, cli)) === undefined ? true : undefined));
-    // When the managed launch types the native command into it.
+    const initial = await until("a bare shell", async () => {
+      const front = await cli.foreground(address, "held");
+      return front.shell ? front.hcTerminal : undefined;
+    });
+    record.oldRuntime = { ...record.oldRuntime!, hcTerminal: initial };
     const since = new Date().toISOString();
     await launchRuntime(config, cli, record);
     const launched = await until("the launched native process", () => launchedProcess(config, cli, record, since));
-    // Then the kernel identifies exactly that process under the terminal's shell, running the private native entry.
     expect(launched.executable).toBe(realpathSync(process.execPath));
     expect(sameProcess(launched)).toBe(true);
     const bind = async (pid: number) => {
-      const startedAt = new Date().toISOString();
+      const at = readFileSync(startedPath, "utf8");
       writePaneState(config.stateDir, {
         paneId: address,
         role: "cataly",
@@ -182,13 +173,12 @@ draw();
         sessionFile: record.oldRuntime!.sessionFile,
         cwd: root,
         pid,
-        startedAt,
-        updatedAt: startedAt,
+        startedAt: at,
+        updatedAt: at,
         agentStatus: "idle",
         approvalPending: false,
         goal: { status: "none" },
       });
-      expect(await cli.probe(address, "held", config.stateDir)).toMatchObject({ pid, agent: "omp", status: "idle" });
       return captureRuntime(config, cli);
     };
     await until("a draft on screen", async () => (await screen(address)).includes("owner draft") || undefined);
@@ -209,6 +199,7 @@ draw();
           updatedAt: new Date().toISOString(),
           presetLoaded: true,
           editorEmpty,
+          hcExitToken: readFileSync(offerPath, "utf8"),
           monitors: [],
         }),
         { mode: 0o600 },
@@ -227,15 +218,26 @@ draw();
     await until("a cleared draft", async () => (await screen(address)).includes("thinking effort") || undefined);
     await expect(stopRuntime(config, cli, record, () => {})).rejects.toThrow(DeploymentHeld);
     expect(record.nativeUiExitRequestedAt).toBeUndefined();
+    await holdHcExitRace(config, cli, record, env, offerPath, quitKey, () => editor(true));
     editor(true);
     await stopRuntime(config, cli, record, () => {});
     expect(record.nativeUiExitRequestedAt).toBeDefined();
     expect(sameProcess(launched)).toBe(false);
-    await requireShell(config, cli);
+    expect(existsSync(quitKey)).toBe(false);
+    await requireShell(config, cli, undefined, undefined, old.hcTerminal);
+    await holdHcReplacement(config, cli, record);
     const resumedAt = new Date().toISOString();
     await launchRuntime(config, cli, record);
     const resumed = await until("the resumed process", () => launchedProcess(config, cli, record, resumedAt));
-    expect(await bind(resumed.pid)).toMatchObject({ sessionId: old.sessionId, sessionFile: old.sessionFile });
+    await until(
+      "the restarted draft on screen",
+      async () => (await screen(address)).includes("owner draft") || undefined,
+    );
+    expect(await bind(resumed.pid)).toMatchObject({
+      sessionId: old.sessionId,
+      sessionFile: old.sessionFile,
+      hcTerminal: old.hcTerminal,
+    });
     expect(resumed.pid).not.toBe(old.pid);
     await stopLaunchedProcess(config, cli, record, resumedAt, resumed);
     await hc("kill", address);

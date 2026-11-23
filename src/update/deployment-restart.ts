@@ -1,5 +1,6 @@
 import { saveActiveDeployment } from "./deployment-active.ts";
 import { ownReleaseRoot } from "./deployment-files.ts";
+import { HcTerminalChanged } from "./deployment-hc.ts";
 import { captureStartedMonitors } from "./deployment-handoff.ts";
 import { observeDeploymentHealth, waitDeploymentHealth } from "./deployment-health.ts";
 import { launchRuntime } from "./deployment-launch.ts";
@@ -107,6 +108,11 @@ export async function restartDeployment(
   } catch (error) {
     if (!record) throw error;
     record.error = error instanceof DeploymentHeld ? error.message : "managed restart failed";
+    if (error instanceof HcTerminalChanged) {
+      record.status = "held";
+      persist(record);
+      return record;
+    }
     if (holdPendingNativeUiExit(record)) {
       persist(record);
       return record;
@@ -118,7 +124,7 @@ export async function restartDeployment(
         finishRestartIntent(config, restored);
         return restored;
       } catch (rollbackError) {
-        record.status = "failed";
+        record.status = rollbackError instanceof HcTerminalChanged ? "held" : "failed";
         record.rollbackError =
           rollbackError instanceof DeploymentHeld
             ? rollbackError.message

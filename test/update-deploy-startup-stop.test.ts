@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { ownReleaseRoot } from "../src/update/deployment-files.ts";
 import { launchedProcess, stopLaunchedProcess } from "../src/update/deployment-launch.ts";
-import { requireShell } from "../src/update/deployment-native.ts";
+import { requireShell } from "../src/update/deployment-shell.ts";
 import { processIdentity, sameProcess } from "../src/update/deployment-process.ts";
 import type { DeploymentRecord } from "../src/update/deployment-types.ts";
 import { digest } from "../src/update/source.ts";

@@ -2,6 +2,7 @@ import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { readActiveDeployment } from "./deployment-active.ts";
 import { captureHandoff, prepareLauncher } from "./deployment-handoff.ts";
+import { requireHcTerminal } from "./deployment-hc.ts";
 import { captureRuntime, nativeCli } from "./deployment-native.ts";
 import { forwardStopStarted } from "./deployment-native-ui.ts";
 import { DeploymentHeld, sameProcess, underProcess } from "./deployment-process.ts";
@@ -47,6 +48,7 @@ export async function verifyBusyHold(config: DeploymentConfig, record: Deploymen
   if (!record.oldRuntime || !record.oldMonitors || record.quiesceHash)
     throw new DeploymentHeld("busy hold lacks an intact native handoff");
   const current = await captureRuntime(config, nativeCli(config), true);
+  if (config.runtime === "hc") requireHcTerminal(record.oldRuntime.hcTerminal, current.hcTerminal);
   if (
     current.approvalPending ||
     !sameProcess(record.oldRuntime, current) ||
@@ -67,6 +69,7 @@ export async function refreshBusyHandoff(config: DeploymentConfig, record: Deplo
   const previous = record.oldRuntime;
   if (!previous || record.quiesceHash) throw new DeploymentHeld("busy retry has no unconsumed native handoff");
   const current = await captureRuntime(config, nativeCli(config), true);
+  if (config.runtime === "hc") requireHcTerminal(previous.hcTerminal, current.hcTerminal);
   if (current.approvalPending || current.sessionFile !== previous.sessionFile)
     throw new DeploymentHeld("busy retry native approval or session changed");
   if (!sameProcess(previous, current)) {
@@ -79,12 +82,15 @@ export async function refreshBusyHandoff(config: DeploymentConfig, record: Deplo
       active.runtime.startedAt !== current.startedAt
     )
       throw new DeploymentHeld("busy retry has no verified managed restart receipt");
-    delete record.oldToolchain;
   }
+  const refreshed = { ...record };
+  if (!sameProcess(previous, current)) delete refreshed.oldToolchain;
   const sourceHash = record.oldSourceHash;
   const sessionFile = previous.sessionFile;
-  delete record.oldRuntime;
-  const recaptured = await captureHandoff(config, record, prepareLauncher(config, record));
-  if (record.oldSourceHash !== sourceHash || recaptured.sessionFile !== sessionFile)
+  delete refreshed.oldRuntime;
+  const recaptured = await captureHandoff(config, refreshed, prepareLauncher(config, refreshed));
+  if (config.runtime === "hc") requireHcTerminal(previous.hcTerminal, recaptured.hcTerminal);
+  if (refreshed.oldSourceHash !== sourceHash || recaptured.sessionFile !== sessionFile)
     throw new DeploymentHeld("busy retry source or session changed during capture");
+  Object.assign(record, refreshed);
 }

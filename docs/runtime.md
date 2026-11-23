@@ -154,7 +154,7 @@ Skill direct sends and migration checkpoint requests gate on the status they jus
 
 Set `notes = false` in `~/.config/herdr-core/config.toml`. With notes on, hc types notes into a parent agent on its own, and Cataly's inbox is meant to be the only thing that types into an agent. Cataly already opens every terminal with `--no-parent --no-notify`.
 
-Managed [source updates](../skills/cataly-mode/references/scripts.md#ci-gated-source-updates) use a stricter hc path than ordinary sends: raw idle/done and a stable turn, an exact current screen, and fresh empty-editor evidence from the same lead. The controller requests one normal UI exit and waits for the original root shell before typing a resume command. A direct terminal launch leaves no shell on normal exit and is not eligible.
+Managed [source updates](../skills/cataly-mode/references/scripts.md#ci-gated-source-updates) use a stricter hc path than ordinary sends: raw idle/done and a stable turn, an exact current screen, and fresh empty-editor evidence from the same lead. Instead of sending an exit key, the controller submits one bounded request. The lead verifies the observed turn and checks for live work, approvals and drafts before requesting graceful shutdown inside OMP. Restart and rollback only resume in the journaled terminal under its original root shell. A direct terminal launch leaves no shell on normal exit and is not eligible.
 
 ### OMP identity, goal and approval records
 

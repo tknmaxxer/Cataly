@@ -1,10 +1,12 @@
 import type { DeploymentCli } from "./deployment-cli.ts";
 import { restorePointer } from "./deployment-files.ts";
+import { HcTerminalChanged, requireHcTerminal } from "./deployment-hc.ts";
 import { captureStartedMonitors } from "./deployment-handoff.ts";
 import { observeDeploymentHealth, waitDeploymentHealth } from "./deployment-health.ts";
 import { launchedProcess, launchRuntime, stopLaunchedProcess } from "./deployment-launch.ts";
-import { nativeCli, requireShell, stopRecordedMonitors } from "./deployment-native.ts";
+import { nativeCli, stopRecordedMonitors } from "./deployment-native.ts";
 import { DeploymentHeld, sameProcess } from "./deployment-process.ts";
+import { requireShell } from "./deployment-shell.ts";
 import type { DeploymentConfig, DeploymentRecord, ProcessIdentity } from "./deployment-types.ts";
 
 export async function waitLaunchedProcess(
@@ -26,7 +28,8 @@ export async function waitLaunchedProcess(
       if (identity) return identity;
       held = undefined;
     } catch (error) {
-      if (!(error instanceof DeploymentHeld) || options.signal?.aborted) throw error;
+      if (!(error instanceof DeploymentHeld) || error instanceof HcTerminalChanged || options.signal?.aborted)
+        throw error;
       held = error;
     }
     await Bun.sleep(Math.min(100, Math.max(0, deadline - Date.now())));
@@ -44,6 +47,8 @@ export async function rollbackDeployment(
   if (!record.oldRuntime || !record.oldSource || !record.oldSourceHash || !record.monitors)
     throw new DeploymentHeld("rollback lacks the pre-effect handoff journal");
   const cli = nativeCli(config);
+  if (config.runtime === "hc")
+    requireHcTerminal(record.oldRuntime.hcTerminal, (await cli.foreground(config.pane, "deployment held")).hcTerminal);
   if (record.status === "rolled-back" && record.step === "done") {
     const expected = record.rollbackRuntime;
     if (!expected || !record.rollbackHealthyAt)
@@ -93,7 +98,7 @@ export async function rollbackDeployment(
         persist(record);
         await stopLaunchedProcess(config, cli, record, record.launchRequestedAt, record.launchProcess);
         await stopRecordedMonitors(config, record.runtimeMonitors);
-      } else await requireShell(config, cli);
+      } else await requireShell(config, cli, undefined, undefined, record.oldRuntime.hcTerminal);
       await stopRecordedMonitors(config, record.oldMonitors ?? []);
       for (const pointer of [...(record.pointers ?? [])].reverse()) restorePointer(pointer);
       record.rollbackLaunchRequestedAt = new Date().toISOString();
@@ -106,7 +111,7 @@ export async function rollbackDeployment(
         record.rollbackProcess = observed;
         persist(record);
       } else {
-        await requireShell(config, cli);
+        await requireShell(config, cli, undefined, undefined, record.oldRuntime.hcTerminal);
         record.rollbackLaunchRequestedAt = new Date().toISOString();
         persist(record);
         await launchRuntime(config, cli, record, false, true);

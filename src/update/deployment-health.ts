@@ -1,6 +1,7 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { DeploymentCli } from "./deployment-cli.ts";
+import { HcTerminalChanged, requireHcTerminal } from "./deployment-hc.ts";
 import { launchedProcess } from "./deployment-launch.ts";
 import {
   type LegacyRollbackForeground,
@@ -40,6 +41,7 @@ export async function observeDeploymentHealth(
     rollback = attestRollback(config, record, since, expected);
   }
   const runtime = await captureRuntime(config, cli, true, undefined, rollback);
+  if (config.runtime === "hc") requireHcTerminal(record.oldRuntime?.hcTerminal, runtime.hcTerminal);
   const sinceMs = Date.parse(since);
   if (
     !Number.isFinite(sinceMs) ||
@@ -138,7 +140,7 @@ export async function waitDeploymentHealth(
     try {
       return await observeDeploymentHealth(config, cli, record, source, since, legacy, prior);
     } catch (error) {
-      if (Date.now() >= deadline) throw error;
+      if (error instanceof HcTerminalChanged || Date.now() >= deadline) throw error;
     }
     await Bun.sleep(250);
   } while (Date.now() <= deadline);

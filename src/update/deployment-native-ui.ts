@@ -1,9 +1,11 @@
 import { realpathSync } from "node:fs";
 import { readPaneState } from "../../skills/cataly-mode/scripts/src/lane-state.ts";
 import type { DeploymentCli } from "./deployment-cli.ts";
+import { requireHcTerminal } from "./deployment-hc.ts";
+import { publishHcExit, validExitToken } from "./deployment-hc-exit.ts";
 import { attestMonitorForeground, readRuntimeHealth } from "./deployment-monitor-receipts.ts";
 import { DeploymentBusy, DeploymentHeld, sameProcess, underProcess } from "./deployment-process.ts";
-import type { DeploymentConfig, DeploymentRecord, RuntimeIdentity } from "./deployment-types.ts";
+import type { DeploymentConfig, DeploymentRecord, RuntimeHealth, RuntimeIdentity } from "./deployment-types.ts";
 import { procStat } from "./proc.ts";
 import { sourceManifest } from "./source.ts";
 
@@ -23,29 +25,40 @@ function emptyNativeInput(screen: string, hasEditorReceipt: boolean): boolean {
 }
 
 /** Plain hc screen rows cannot distinguish a whitespace draft from layout padding. */
-function assertEditorReceipt(config: DeploymentConfig, expected: RuntimeIdentity): void {
-  try {
-    const health = readRuntimeHealth(config);
-    const age = health ? Date.now() - Date.parse(health.updatedAt) : Infinity;
-    if (
-      health?.editorEmpty === true &&
-      health.pid === expected.pid &&
-      health.startedAt === expected.startedAt &&
-      age >= 0 &&
-      age <= 1_500
-    )
-      return;
-  } catch {
-    // Missing and malformed evidence are both doubt; never expose raw input or receipt contents.
-  }
-  throw new DeploymentHeld("hc native UI stop requires a fresh empty-editor receipt from the same lead");
+function editorToken(health: RuntimeHealth | undefined, expected: RuntimeIdentity): string {
+  const age = health ? Date.now() - Date.parse(health.updatedAt) : Infinity;
+  if (
+    health?.editorEmpty === true &&
+    validExitToken(health.hcExitToken) &&
+    health.pid === expected.pid &&
+    health.startedAt === expected.startedAt &&
+    age >= 0 &&
+    age <= 1_500
+  )
+    return health.hcExitToken;
+  throw new DeploymentHeld("hc native UI stop requires a fresh empty-editor receipt and exit offer from the same lead");
 }
 
 /** A failed acknowledgement cannot disprove delivery; the caller must still observe exit and the bare shell. */
-export async function requestNativeUiExit(cli: DeploymentCli, pane: string): Promise<DeploymentHeld | undefined> {
-  if (!cli.nativeUi) throw new DeploymentHeld("native UI stop requires supported screen and exit operations");
+export async function requestNativeUiExit(
+  cli: DeploymentCli,
+  config: DeploymentConfig,
+  owner: RuntimeIdentity,
+  offer: Awaited<ReturnType<typeof assertNativeUiIdle>>,
+  expires: number,
+): Promise<DeploymentHeld | undefined> {
   try {
-    await cli.nativeUi.exit(pane);
+    if (offer) {
+      publishHcExit(config.stateDir, {
+        ...offer,
+        pid: owner.pid,
+        sessionId: owner.sessionId,
+        startedAt: owner.startedAt,
+        expires,
+      });
+    } else if (config.runtime !== "hc" && cli.nativeUi?.exit) {
+      await cli.nativeUi.exit(config.pane);
+    } else throw new Error("missing native UI exit operation");
     return undefined;
   } catch {
     return new DeploymentHeld("native UI exit acknowledgement is unavailable and exit remains unobserved");
@@ -79,10 +92,19 @@ export async function assertNativeUiIdle(
   cli: DeploymentCli,
   expected: RuntimeIdentity,
   record?: DeploymentRecord,
-): Promise<void> {
+) {
   if (!cli.nativeUi) throw new DeploymentHeld("native UI stop requires supported screen and exit operations");
   const current = await cli.probe(config.pane, "deployment held", config.stateDir);
+  let health: RuntimeHealth | undefined;
+  if (config.runtime === "hc") {
+    try {
+      health = readRuntimeHealth(config);
+    } catch {
+      // Malformed health cannot authorize exit.
+    }
+  }
   const screen = await cli.nativeUi.read(config.pane, 30, current);
+  const hc = typeof screen !== "string";
   const group = (pid: number): number => {
     try {
       return procStat(pid).pgid;
@@ -129,9 +151,15 @@ export async function assertNativeUiIdle(
     state.agentStatus !== "idle" ||
     !current.rootPid ||
     !underProcess(expected.pid, current.rootPid) ||
-    !emptyNativeInput(screen, cli.nativeUi.requiresEditorReceipt === true)
+    !emptyNativeInput(hc ? screen.text : screen, hc)
   )
     throw new DeploymentHeld("native UI stop requires the same idle owner and observed empty native input");
-  if (cli.nativeUi.requiresEditorReceipt) assertEditorReceipt(config, expected);
   if (!sameProcess(expected)) throw new DeploymentHeld("native runtime changed before UI stop");
+  if (config.runtime === "hc") {
+    if (!hc) throw new DeploymentHeld("hc native UI stop lacks a bound screen");
+    requireHcTerminal(expected.hcTerminal, screen.terminal);
+    return { token: editorToken(health, expected), terminal: screen.terminal, idle: screen.idle };
+  }
+  if (!cli.nativeUi.exit) throw new DeploymentHeld("native UI stop requires a supported exit operation");
+  return undefined;
 }

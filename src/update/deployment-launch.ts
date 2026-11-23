@@ -2,9 +2,10 @@ import { realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { readPaneState } from "../../skills/cataly-mode/scripts/src/lane-state.ts";
 import type { DeploymentCli } from "./deployment-cli.ts";
+import { HcTerminalChanged, requireHcTerminal } from "./deployment-hc.ts";
 import { deploymentEnvArgs, legacyDeploymentSource } from "./deployment-legacy-brand.ts";
 import { completedLegacyRollbackForeground, legacyRollbackForeground } from "./deployment-legacy-monitors.ts";
-import { captureRuntime, requireShell } from "./deployment-native.ts";
+import { captureRuntime } from "./deployment-native.ts";
 import { runtimeUsesToolchain } from "./deployment-prior.ts";
 import {
   actorEnv,
@@ -14,7 +15,7 @@ import {
   sameProcess,
   underProcess,
 } from "./deployment-process.ts";
-import { bareRootShell } from "./deployment-shell.ts";
+import { bareRootShell, requireShell } from "./deployment-shell.ts";
 import { terminateBoundProcess } from "./deployment-signal.ts";
 import { assertRuntimeToolchain } from "./deployment-toolchain.ts";
 import type { DeploymentConfig, DeploymentRecord, ProcessIdentity } from "./deployment-types.ts";
@@ -55,7 +56,6 @@ export async function launchRuntime(
   assertRuntimeToolchain(config, toolchain);
   const source = prior ? record.oldSource : record.releasePath;
   const command = managedOmpCommand(toolchain, source);
-  await requireShell(config, cli);
   const legacy = legacyDeploymentSource(source, prior ? record.oldSourceHash : record.sourceHash);
   const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
   const env = deploymentEnvArgs({ ...actorEnv(config, toolchain), CATALY_MANAGED_STARTUP: "1" }, legacy);
@@ -72,7 +72,9 @@ export async function launchRuntime(
       ? [`--${legacy ? "dori" : "cataly"}-monitor-bootstrap=${config.monitorBootstrapFile}`]
       : []),
   ];
-  await cli.start(config.pane, `cd ${quote(previous.cwd)} && ${argv.map(quote).join(" ")}`);
+  const resume = `cd ${quote(previous.cwd)} && ${argv.map(quote).join(" ")}`;
+  await requireShell(config, cli, undefined, undefined, previous.hcTerminal);
+  await cli.start(config.pane, resume);
 }
 
 /** Binds a failed startup even when extension initialization never wrote its role receipt. */
@@ -87,6 +89,7 @@ export async function launchedProcess(
   const toolchain = prior ? record.oldToolchain : record.toolchain;
   if (!previous || !toolchain) throw new DeploymentHeld("native startup lacks its identity/toolchain journal");
   const front = await cli.foreground(config.pane, "deployment held");
+  if (config.runtime === "hc") requireHcTerminal(previous.hcTerminal, front.hcTerminal);
   const legacyRollback = prior && record.bootstrap === true && record.rollbackLaunchRequestedAt === since;
   const matches = (front.processes ?? []).flatMap((entry) => {
     if (!entry.pid || !front.rootPid || !underProcess(entry.pid, front.rootPid)) return [];
@@ -179,7 +182,7 @@ export async function stopLaunchedProcess(
     try {
       if (!sameProcess(expected)) {
         if (processIdentity(expected.pid)) throw new DeploymentHeld("startup PID has been reused");
-        await requireShell(config, cli, expected, deadline);
+        await requireShell(config, cli, expected, deadline, record.oldRuntime?.hcTerminal);
         return;
       }
       const actual = await launchedProcess(config, cli, record, since);
@@ -197,7 +200,13 @@ export async function stopLaunchedProcess(
         if (!sameProcess(expected, runtime)) throw new DeploymentHeld("startup owner changed before rollback");
       }
     } catch (error) {
-      if (!(error instanceof DeploymentHeld) || signal?.aborted || Date.now() >= deadline) throw error;
+      if (
+        !(error instanceof DeploymentHeld) ||
+        error instanceof HcTerminalChanged ||
+        signal?.aborted ||
+        Date.now() >= deadline
+      )
+        throw error;
       held = error;
       await Bun.sleep(Math.min(50, Math.max(0, deadline - Date.now())));
       continue;
@@ -210,5 +219,5 @@ export async function stopLaunchedProcess(
   const until = Date.now() + config.stopTimeoutMs;
   while (sameProcess(expected) && Date.now() < until) await Bun.sleep(50);
   if (sameProcess(expected)) throw new DeploymentHeld("failed startup did not stop");
-  await requireShell(config, cli, expected, until);
+  await requireShell(config, cli, expected, until, record.oldRuntime?.hcTerminal);
 }
