@@ -4,6 +4,7 @@ import { readPaneState } from "../../skills/cataly-mode/scripts/src/lane-state.t
 import { Registry, RESERVED_LANE_KEY, statusOf } from "../../skills/cataly-mode/scripts/src/registry.ts";
 import { readMonitorSet } from "./deployment-monitors.ts";
 import { captureRuntime, nativeCli } from "./deployment-native.ts";
+import { assertNativeUiIdle } from "./deployment-native-ui.ts";
 import { DeploymentHeld, sameProcess, underProcess } from "./deployment-process.ts";
 import type { RuntimeIdentity } from "./deployment-types.ts";
 import { readInboundActivity } from "./source-activity.ts";
@@ -16,7 +17,8 @@ export async function sourceIdle(
   expected?: RuntimeIdentity,
 ): Promise<{ runtime: RuntimeIdentity; quietMs: number; receivers: number }> {
   const deployment = config.deployment;
-  const runtime = await captureRuntime(deployment, nativeCli(deployment, signal));
+  const cli = nativeCli(deployment, signal);
+  const runtime = await captureRuntime(deployment, cli);
   if (
     expected &&
     (!sameProcess(expected, runtime) ||
@@ -24,6 +26,7 @@ export async function sourceIdle(
       expected.startedAt !== runtime.startedAt)
   )
     throw new DeploymentHeld("lead identity changed before the source operation");
+  if (deployment.runtime === "hc") await assertNativeUiIdle(deployment, cli, runtime);
   return sourceIdleNow(config, runtime);
 }
 

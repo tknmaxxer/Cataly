@@ -189,7 +189,7 @@ export async function stopRuntime(
     }
     if (record.oldSourceHash && sourceManifest(realpathSync(config.liveSource)).hash !== record.oldSourceHash)
       throw new DeploymentHeld("previous source changed after its handoff journal");
-    if (ui) await assertNativeUiIdle(config, cli, record, expected);
+    if (ui) await assertNativeUiIdle(config, cli, expected, record);
     assertMonitorStopSafe(config, record);
     assertRetryDeadline(config, record);
     if (!forwardStopStarted(config, record)) finalAdmission?.();

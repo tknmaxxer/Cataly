@@ -13,6 +13,7 @@ type State = {
   readonly startedAt: string;
   readonly wanted: ReadonlyMap<string, MonitorSpec>;
   readonly presetLoaded: boolean;
+  readonly editorEmpty?: () => boolean;
 };
 const source = dirname(realpathSync(import.meta.dir));
 const extensionHash = createHash("sha256")
@@ -72,6 +73,7 @@ export class RuntimeHealthWriter {
       updatedAt: new Date().toISOString(),
       source,
       extensionHash,
+      ...(state.editorEmpty ? { editorEmpty: state.editorEmpty() } : {}),
       monitors,
     };
     const path = join(state.stateDir, "runtime", `${encodeURIComponent(state.paneId)}.json`);

@@ -28,6 +28,8 @@ hc --skill                          # load its skill unless it is already in you
 
 `notes = false` stops hc from typing notes into a parent agent on its own. Installing a terminal binary does not change the headless default. For new terminal sessions select `"sessionRuntime": "herdr"` or `"hc"` in the selected home’s config (or set `CATALY_RUNTIME` for the command); an old `runtime` value alone is not an opt-in.
 
+If opting in to [CI-gated source updates](scripts.md#ci-gated-source-updates) on hc, use a dedicated local terminal with an interactive shell (for example `hc run --bg --no-parent --no-notify -- /bin/bash --noprofile --norc -i`). Start the generated OMP lead as a foreground command in that shell, without `exec`, and resume its existing session when migrating a lead. Verify `cataly idle-check` from outside the lead before enabling the supervisor. These prerequisites do not apply to ordinary hc launches.
+
 ## 2. Messenger
 
 Tern (source feature, outside the consumer preview): install Tern so `tern` is on PATH, and set "`sessionRuntime`: "tern"` in the selected home’s config (or `CATALY_RUNTIME=tern` for the command), because the native default and herdr/hc on PATH are selected first. Start the lead in a Tern block with `PI_TUI_NATIVE=0` (OMP’s classic UI; a natively drawn OMP shows `tern capture` no input) and set `leadPane` to its block id (`echo $TERN_PANE` there). Lanes open as tabs in the lead’s own Tern session, or in the session `laneWorkspace` names; set `workspaces` to that session so sweeps read no other one. See [Tern](../../../docs/runtime.md#tern).

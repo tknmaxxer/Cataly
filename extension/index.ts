@@ -135,6 +135,7 @@ export interface CatalyContext {
   ui: {
     notify(message: string, type?: "info" | "warning" | "error"): void;
     setStatus?(key: string, text: string | undefined): void;
+    getEditorText?(): string;
   };
   getAsyncJobSnapshot?(): AsyncJobSnapshot | null;
 }
@@ -688,6 +689,15 @@ export default async function ompCataly(pi: CatalyApi): Promise<void> {
         startedAt: session.startedAt,
         wanted: recordedMonitors(ctx.sessionManager.getBranch()),
         presetLoaded: loadError === undefined,
+        ...(process.env.HC_TERMINAL_ID && ctx.mode === "tui" && ctx.ui.getEditorText
+          ? {
+              editorEmpty: () =>
+                approvals.size === 0 &&
+                agentStatus === "idle" &&
+                ctx.isIdle?.() === true &&
+                ctx.ui.getEditorText?.() === "",
+            }
+          : {}),
       });
     else runtimeHealth.stop();
     paneWritten = paneId;

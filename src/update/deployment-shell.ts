@@ -7,6 +7,29 @@ import { DeploymentHeld, processIdentity, sameProcess } from "./deployment-proce
 import type { DeploymentConfig } from "./deployment-types.ts";
 import { procChildren, procCmdline, procExe, procStat } from "./proc.ts";
 
+/** The root must survive the actor's exit and be able to return to an ordinary prompt. */
+export function interactiveRootShell(pid: number) {
+  const identity = processIdentity(pid);
+  if (!identity || !SHELLS.has(basename(identity.executable))) return undefined;
+  try {
+    const argv = procCmdline(pid).split("\0").filter(Boolean);
+    const argv0 = argv[0] ?? "";
+    const invoked = basename(argv0).replace(/^-/, "");
+    const matchesImage = isAbsolute(argv0)
+      ? realpathSync(argv0) === realpathSync(procExe(pid))
+      : invoked === basename(identity.executable);
+    if (
+      !matchesImage ||
+      argv.slice(1).some((arg) => !/^-[il]+$|^--(?:login|interactive|noprofile|norc)$/.test(arg)) ||
+      !sameProcess(identity)
+    )
+      return undefined;
+    return { identity, invoked, argv };
+  } catch {
+    return undefined;
+  }
+}
+
 /** A foreground child shell is never the pane's bare prompt, including suspended/background native owners. */
 export function bareRootShell(config: DeploymentConfig, front: Front): boolean {
   if (
@@ -19,23 +42,16 @@ export function bareRootShell(config: DeploymentConfig, front: Front): boolean {
     return false;
   const owner = readPaneState(config.stateDir, config.pane);
   if (owner && processIdentity(owner.pid)) return false;
-  const identity = processIdentity(front.rootPid);
-  if (!identity || !SHELLS.has(basename(identity.executable))) return false;
+  const root = interactiveRootShell(front.rootPid);
+  if (!root) return false;
   try {
     const entry = front.processes[0]!;
-    const argv = procCmdline(identity.pid).split("\0").filter(Boolean);
-    const argv0 = argv[0] ?? "";
-    const invoked = basename(argv0).replace(/^-/, "");
-    const matchesImage = isAbsolute(argv0)
-      ? realpathSync(argv0) === realpathSync(procExe(identity.pid))
-      : invoked === basename(identity.executable);
+    const { identity, invoked, argv } = root;
     const { pgid, tpgid } = procStat(identity.pid);
     if (
       basename(entry.name).replace(/^-/, "") !== invoked ||
-      !matchesImage ||
       argv.length !== entry.argv.length ||
       argv.some((arg, index) => arg !== entry.argv[index]) ||
-      argv.slice(1).some((arg) => !/^-[il]+$|^--(?:login|interactive|noprofile|norc)$/.test(arg)) ||
       pgid !== front.pgid ||
       (tpgid > 0 && tpgid !== front.pgid) ||
       procChildren(identity.pid, true).length > 0

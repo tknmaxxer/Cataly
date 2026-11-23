@@ -165,5 +165,7 @@ export type RuntimeHealth = {
   readonly updatedAt: string;
   readonly source: string;
   readonly extensionHash: string;
+  /** Present only when the interactive hc lead can sample the native editor buffer. */
+  readonly editorEmpty?: boolean;
   readonly monitors: readonly (MonitorSpec & { readonly pid: number; readonly startTicks: string })[];
 };

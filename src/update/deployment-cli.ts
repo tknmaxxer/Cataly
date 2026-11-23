@@ -8,6 +8,8 @@ import { HerdrCli, reasonOf } from "../runtime/herdr/exec.ts";
 import { type Front, foreground as herdrForeground, probe as herdrProbe } from "../runtime/herdr/probe.ts";
 import { start as herdrStart } from "../runtime/herdr/sessions.ts";
 import type { ForegroundProcess, Probe } from "../runtime/types.ts";
+import { DeploymentHeld, sameProcess } from "./deployment-process.ts";
+import { interactiveRootShell } from "./deployment-shell.ts";
 import { procChildren, procCmdline, procExeTarget, procStat } from "./proc.ts";
 
 /** The terminal operations a managed replacement performs on the Cataly's own pane or terminal. */
@@ -17,7 +19,8 @@ export interface DeploymentCli {
   foreground(pane: string, onFail: string): Promise<Front>;
   start(pane: string, command: string): Promise<void>;
   readonly nativeUi?: {
-    read(pane: string, lines: number): Promise<string>;
+    readonly requiresEditorReceipt?: true;
+    read(pane: string, lines: number, owner: Probe): Promise<string>;
     exit(pane: string): Promise<void>;
   };
 }
@@ -87,7 +90,12 @@ export function hcDeploymentCli(exec: Exec): DeploymentCli {
   return {
     exec,
     probe: async (pane, onFail, stateDir) => {
-      const seen = await hcProbe(exec, pane, stateDir);
+      let seen: Probe;
+      try {
+        seen = await hcProbe(exec, pane, stateDir);
+      } catch {
+        return { status: "unknown", shellInFront: true };
+      }
       if (seen.status === "gone") return seen;
       const front = await foreground(pane, onFail);
       const { pgid: _pgid, rootPid: _rootPid, foreground: _foreground, ...rest } = seen;
@@ -103,5 +111,63 @@ export function hcDeploymentCli(exec: Exec): DeploymentCli {
     start: async (pane, command) => {
       await hcCall(exec, ["send", pane, "--", command]);
     },
+    ...(platform.supportsProcessReaders
+      ? {
+          nativeUi: {
+            requiresEditorReceipt: true as const,
+            read: (pane: string, _lines: number, owner: Probe) => readHcNativeScreen(exec, pane, owner),
+            exit: async (pane: string) => {
+              await hcCall(exec, ["keys", pane, "ctrl+d"]);
+            },
+          },
+        }
+      : {}),
   };
+}
+
+/** Bracket the visible frame with observations of the same live OMP turn. */
+async function readHcNativeScreen(exec: Exec, pane: string, owner: Probe): Promise<string> {
+  const root = owner.rootPid === undefined ? undefined : interactiveRootShell(owner.rootPid);
+  if (!root || owner.rootPid === owner.pid)
+    throw new DeploymentHeld("hc native UI stop requires an interactive root shell, not a direct lead launch");
+  const get = async () => {
+    const terminal = await hcCall(exec, ["get", pane]);
+    const status = terminal["status"] as { app?: unknown; state?: unknown } | undefined;
+    const foreground = terminal["foreground"] as { pid?: unknown } | undefined;
+    if (
+      terminal["address"] !== pane ||
+      terminal["state"] !== "live" ||
+      terminal["pid"] !== owner.rootPid ||
+      owner.pid === undefined ||
+      foreground?.pid !== owner.pid ||
+      !Number.isSafeInteger(owner.turn) ||
+      terminal["turn"] !== owner.turn ||
+      typeof terminal["identity"] !== "string" ||
+      terminal["screen"] !== "exact" ||
+      status?.app !== "omp" ||
+      (status.state !== "idle" && status.state !== "done")
+    )
+      throw new DeploymentHeld("hc cannot bind the screen to the same idle OMP turn and recoverable terminal");
+    return [terminal["identity"], status.state, terminal["status_ms"]];
+  };
+  try {
+    const children = new Set(procChildren(root.identity.pid, true));
+    if (children.size !== 1 || owner.pid === undefined || !children.has(owner.pid))
+      throw new DeploymentHeld("hc root shell has unrelated work or does not directly own the lead");
+    const before = await get();
+    // The visible screen only: an editor in scrollback cannot authorize exit.
+    const frame = await hcCall(exec, ["read", pane]);
+    const after = await get();
+    if (
+      frame["complete"] === true &&
+      frame["how"] === "screen" &&
+      typeof frame["text"] === "string" &&
+      before.every((value, i) => value === after[i]) &&
+      sameProcess(root.identity)
+    )
+      return frame["text"];
+  } catch (error) {
+    if (error instanceof DeploymentHeld) throw error;
+  }
+  throw new DeploymentHeld("hc current screen is incomplete, unreadable or changed during observation");
 }

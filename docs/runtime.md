@@ -154,6 +154,8 @@ Skill direct sends and migration checkpoint requests gate on the status they jus
 
 Set `notes = false` in `~/.config/herdr-core/config.toml`. With notes on, hc types notes into a parent agent on its own, and Cataly's inbox is meant to be the only thing that types into an agent. Cataly already opens every terminal with `--no-parent --no-notify`.
 
+Managed [source updates](../skills/cataly-mode/references/scripts.md#ci-gated-source-updates) use a stricter hc path than ordinary sends: raw idle/done and a stable turn, an exact current screen, and fresh empty-editor evidence from the same lead. The controller requests one normal UI exit and waits for the original root shell before typing a resume command. A direct terminal launch leaves no shell on normal exit and is not eligible.
+
 ### OMP identity, goal and approval records
 
 The extension writes `<stateDir>/sessions/<encodeURIComponent(id)>.json`, preferring `HC_TERMINAL_ID` over `HERDR_PANE_ID` over `TERN_PANE`. Its schema is `paneId`, `role`, `sessionId`, optional `sessionFile`, `cwd`, `pid`, `startedAt`, `updatedAt`, `goal: {status, objective?}`, `approvalPending`, optional `agentStatus: idle|working`, and optional `native: {observedAt, jobs, approvals}`. Earlier records may omit the optional fields. `stateDir` follows `CATALY_STATE_DIR`, then the `CATALY_CONFIG` file's value, then `~/.cataly/state`. Production callers pass that configured `stateDir` explicitly to enable OMP refinement. Runtime instances without it preserve native behavior and do not read operator config or extension state.

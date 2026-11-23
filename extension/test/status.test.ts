@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import { readPaneState, writePaneState } from "../../skills/cataly-mode/scripts/src/lane-state";
+import { readRuntimeHealth } from "../../src/update/deployment-monitor-receipts";
 import { load, useConfig } from "./fake-pi";
 
 test("HC receives native role-session status, approval holds and role-removal invalidation", async () => {
@@ -52,6 +53,35 @@ test("HC receives native role-session status, approval holds and role-removal in
     output.mockRestore();
     if (previousPane === undefined) delete process.env.HERDR_PANE_ID;
     else process.env.HERDR_PANE_ID = previousPane;
+    if (previousTerminal === undefined) delete process.env.HC_TERMINAL_ID;
+    else process.env.HC_TERMINAL_ID = previousTerminal;
+  }
+});
+
+test("HC lead health samples exact editor emptiness without persisting a draft", async () => {
+  const stateDir = useConfig(join(import.meta.dir, "fake-ulw.ts"));
+  const previousTerminal = process.env.HC_TERMINAL_ID;
+  process.env.HC_TERMINAL_ID = "t8";
+  const sessionId = "hc-lead-editor";
+  const pi = await load({ session: { id: sessionId, entries: [] }, flags: { "cataly-role": "cataly" }, mode: "tui" });
+  const context = pi.ctx;
+  let text = " ";
+  pi.ctx = () => {
+    const ctx = context();
+    return { ...ctx, isIdle: () => true, ui: { ...ctx.ui, getEditorText: () => text } };
+  };
+  const health = () => readRuntimeHealth({ stateDir, pane: "t8", sessionId });
+  try {
+    await pi.emit("session_start");
+    expect(health()).toMatchObject({ pid: process.pid, editorEmpty: false });
+    text = "";
+    const deadline = Date.now() + 2_000;
+    while (health()?.editorEmpty !== true && Date.now() < deadline) await Bun.sleep(25);
+    expect(health()?.editorEmpty).toBe(true);
+    await pi.emit("tool_approval_requested", { toolCallId: "approval" });
+    expect(health()?.editorEmpty).toBe(false);
+  } finally {
+    await pi.emit("session_shutdown");
     if (previousTerminal === undefined) delete process.env.HC_TERMINAL_ID;
     else process.env.HC_TERMINAL_ID = previousTerminal;
   }

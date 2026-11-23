@@ -1,13 +1,14 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { readPaneState } from "../../skills/cataly-mode/scripts/src/lane-state.ts";
 import type { DeploymentCli } from "./deployment-cli.ts";
-import { attestMonitorForeground } from "./deployment-monitor-receipts.ts";
+import { attestMonitorForeground, readRuntimeHealth } from "./deployment-monitor-receipts.ts";
 import { DeploymentBusy, DeploymentHeld, sameProcess, underProcess } from "./deployment-process.ts";
 import type { DeploymentConfig, DeploymentRecord, RuntimeIdentity } from "./deployment-types.ts";
+import { procStat } from "./proc.ts";
 import { sourceManifest } from "./source.ts";
 
 /** Only the observed two-row empty native editors; unknown layouts and drafts stay held. */
-function emptyNativeInput(screen: string): boolean {
+function emptyNativeInput(screen: string, hasEditorReceipt: boolean): boolean {
   const lines = screen.split("\n");
   while (lines.at(-1) === "") lines.pop();
   const [header, input] = lines.slice(-2);
@@ -15,13 +16,34 @@ function emptyNativeInput(screen: string): boolean {
     (typeof header === "string" &&
       /^╭─+ .+─+╮$/.test(header) &&
       /^╰─ +(?:⇧⇥ to change thinking effort )?─╯$/.test(input ?? "")) ||
-    (typeof header === "string" && /^ π > ⬢ .+ > .+$/.test(header) && input === "╰─")
+    (typeof header === "string" &&
+      /^ π > ⬢ .+ > .+$/.test(header) &&
+      (input === "╰─" || (hasEditorReceipt && /^╰─ +⇧⇥ to change thinking effort$/.test(input ?? ""))))
   );
+}
+
+/** Plain hc screen rows cannot distinguish a whitespace draft from layout padding. */
+function assertEditorReceipt(config: DeploymentConfig, expected: RuntimeIdentity): void {
+  try {
+    const health = readRuntimeHealth(config);
+    const age = health ? Date.now() - Date.parse(health.updatedAt) : Infinity;
+    if (
+      health?.editorEmpty === true &&
+      health.pid === expected.pid &&
+      health.startedAt === expected.startedAt &&
+      age >= 0 &&
+      age <= 1_500
+    )
+      return;
+  } catch {
+    // Missing and malformed evidence are both doubt; never expose raw input or receipt contents.
+  }
+  throw new DeploymentHeld("hc native UI stop requires a fresh empty-editor receipt from the same lead");
 }
 
 /** A failed acknowledgement cannot disprove delivery; the caller must still observe exit and the bare shell. */
 export async function requestNativeUiExit(cli: DeploymentCli, pane: string): Promise<DeploymentHeld | undefined> {
-  if (!cli.nativeUi) throw new DeploymentHeld("native UI stop requires Linux herdr screen and exit support");
+  if (!cli.nativeUi) throw new DeploymentHeld("native UI stop requires supported screen and exit operations");
   try {
     await cli.nativeUi.exit(pane);
     return undefined;
@@ -55,15 +77,18 @@ export function holdPendingNativeUiExit(record: DeploymentRecord): boolean {
 export async function assertNativeUiIdle(
   config: DeploymentConfig,
   cli: DeploymentCli,
-  record: DeploymentRecord,
   expected: RuntimeIdentity,
+  record?: DeploymentRecord,
 ): Promise<void> {
-  if (!cli.nativeUi) throw new DeploymentHeld("native UI stop requires Linux herdr screen and exit support");
+  if (!cli.nativeUi) throw new DeploymentHeld("native UI stop requires supported screen and exit operations");
   const current = await cli.probe(config.pane, "deployment held", config.stateDir);
-  const screen = await cli.nativeUi.read(config.pane, 30);
+  const screen = await cli.nativeUi.read(config.pane, 30, current);
   const group = (pid: number): number => {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[2]);
+    try {
+      return procStat(pid).pgid;
+    } catch {
+      throw new DeploymentHeld("native UI foreground ownership is unavailable");
+    }
   };
   if (
     current.pgid !== group(expected.pid) ||
@@ -74,11 +99,11 @@ export async function assertNativeUiIdle(
   )
     throw new DeploymentHeld("native UI foreground ownership changed before stop");
   if (current.shellInFront) attestMonitorForeground(config, expected, current);
-  for (const monitor of record.oldMonitors ?? []) {
+  for (const monitor of record?.oldMonitors ?? []) {
     if (!sameProcess(monitor) || monitor.pid === expected.pid || !underProcess(monitor.pid, expected.pid))
       throw new DeploymentHeld("monitor identity changed before native stop");
   }
-  if (record.oldSourceHash && sourceManifest(realpathSync(config.liveSource)).hash !== record.oldSourceHash)
+  if (record?.oldSourceHash && sourceManifest(realpathSync(config.liveSource)).hash !== record.oldSourceHash)
     throw new DeploymentHeld("previous source changed after its handoff journal");
   if (underProcess(process.pid, expected.pid) || group(process.pid) === current.pgid)
     throw new DeploymentHeld("UI replacement controller must run independently outside the target actor");
@@ -104,8 +129,9 @@ export async function assertNativeUiIdle(
     state.agentStatus !== "idle" ||
     !current.rootPid ||
     !underProcess(expected.pid, current.rootPid) ||
-    !emptyNativeInput(screen)
+    !emptyNativeInput(screen, cli.nativeUi.requiresEditorReceipt === true)
   )
     throw new DeploymentHeld("native UI stop requires the same idle owner and observed empty native input");
+  if (cli.nativeUi.requiresEditorReceipt) assertEditorReceipt(config, expected);
   if (!sameProcess(expected)) throw new DeploymentHeld("native runtime changed before UI stop");
 }
