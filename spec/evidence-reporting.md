@@ -187,9 +187,17 @@ lane lifecycle area consumes the completion checker, the step records and the pu
     root), the daemon records it as the answer before handing the message to the lead, and the hand-off says which
     question it answered. A bare number within the options names that option; a number outside them is not recorded
     and the lead is told; other text is a free answer. Replies to unbound messages are ordinary messages.
-    A reply to the lead's open question, or the reply recorded as its answer, goes to the lead even in a thread an
-    open lane owns; a later reply to a settled question is an ordinary message.
-38. The lead may also record an owner answer by hand, citing the owner's message reference.
+    A plain owner message (no reply, forward or attachment) binds the same way to an open question asked before it
+    in its room when that is the only one asked there before it and no OMP question card is open there; only a
+    bare option number is recorded from it. Plain text that names no option is not recorded, and
+    the lead is told which question is open. With several open, a plain message binds to none; the lead is told
+    which are open, so it can ask the owner to reply to one or press its button.
+    A reply to the lead's open question, or the message recorded as its answer, goes to the lead even in a thread
+    an open lane owns; a later reply to a settled question is an ordinary message.
+38. The lead may also record an owner answer by hand, citing the owner's message reference. The daemon does not
+    check the cited message; the lead's instructions limit it to a reply to the question, a plain message the
+    daemon named as possibly answering the only open question in its room (req. 37) when it plainly does, or,
+    for a question the daemon could not post, the owner's answer to the copy the lead posted.
 39. The lead may choose for a lead-may-choose question only: an option number in range, a reason (1 to 1000), and the
     reference of the message in the question's own thread that announced the choice. A different thread is refused.
 40. Withdraw takes a reason. The first answer, choice or withdrawal settles a question; later attempts are refused

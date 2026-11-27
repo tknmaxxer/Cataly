@@ -196,7 +196,7 @@ operator who configures the daemon (in practice the same person).
 40. Each owner message goes through these steps in order and stops at the first that takes it:
     (a) the approval-form component, when the message is a reply or plain text that answers an
     open question; (a2) the lead session, when the message replies to a message bound to an open lead
-    question, or is the reply recorded as that question's answer (EVR req. 37); (b) the session that owns this conversation; (c) the lead session.
+    question, or is the message (a reply or a plain message) recorded as that question's answer (EVR req. 37); (b) the session that owns this conversation; (c) the lead session.
 41. A conversation is owned by a thread session when exactly one open session record names that
     conversation, and no other open record shares its session. If two records claim it, the
     message is held, not sent to the lead. A reply to a lead question is the lead's even in an

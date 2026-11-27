@@ -386,26 +386,37 @@ impl Reads {
         self.0.query_row(&sql, [id], question_of).optional()
     }
 
-    /// Whether `reply`, a reply to `message`, is the lead's (EVR req. 37): the question posted as
-    /// `message` is still open, or `reply` is the owner message recorded as its answer, so a
+    /// Whether owner message `reply` in `room`, a reply to `message` when it is one, is the lead's
+    /// (EVR req. 37): the question posted as `message` is still open, or `reply` is the owner
+    /// message recorded as the answer of a question in `room` (a reply or a plain message), so a
     /// hand-off made again after the answer was recorded still goes to the lead while a later
     /// reply to a settled question does not.
     pub(crate) fn question_reply(
         &self,
         room: &str,
-        message: &str,
+        message: Option<&str>,
         reply: &str,
     ) -> rusqlite::Result<bool> {
         let answer = format!("owner message {reply}: ");
         self.0
             .query_row(
-                "SELECT 1 FROM questions WHERE room = ?1 AND message = ?2 AND (state = 'open' \
+                "SELECT 1 FROM questions WHERE room = ?1 AND ((message = ?2 AND state = 'open') \
                  OR (state = 'answered' AND substr(outcome, 1, length(?3)) = ?3))",
-                [room, message, answer.as_str()],
+                params![room, message, answer],
                 |_| Ok(()),
             )
             .optional()
             .map(|r| r.is_some())
+    }
+
+    /// The open questions in `room`, oldest first (EVR req. 37).
+    pub(crate) fn questions_in(&self, room: &str) -> rusqlite::Result<Vec<QuestionRow>> {
+        let sql = format!(
+            "SELECT {QUESTION_COLUMNS} FROM questions WHERE room = ?1 AND state = 'open' \
+             ORDER BY created_ms, id LIMIT 200"
+        );
+        let mut stmt = self.0.prepare(&sql)?;
+        stmt.query_map([room], question_of)?.collect()
     }
 
     /// Questions the owner answered with a button (an outcome starting with `press`) since
@@ -559,7 +570,7 @@ mod tests {
             let store = store.clone();
             async move {
                 store
-                    .read(move |r| r.question_reply("1", "9", answer))
+                    .read(move |r| r.question_reply("1", Some("9"), answer))
                     .await
                     .unwrap()
             }
@@ -608,5 +619,59 @@ mod tests {
             LeadDone::Refused(_)
         ));
         assert_eq!(store.read(|r| r.requests(true)).await.unwrap(), Vec::new());
+    }
+
+    /// A room's open questions list oldest first; a plain owner message is the lead's only once it
+    /// is recorded as the answer of a question in that room (EVR req. 37).
+    #[tokio::test]
+    async fn open_questions_by_room_and_plain_answers() {
+        let (store, _h, _dir) = open_temp("lead-plain");
+        for (id, message) in [("0000aaaa", "9"), ("0000bbbb", "10")] {
+            let q = QuestionRow {
+                id: id.into(),
+                text: "Which?".into(),
+                source: "discord:1:2".into(),
+                thread: None,
+                options: vec!["a".into(), "b".into()],
+                recommended: None,
+                lead_may: false,
+                request: None,
+                room: Some("1".into()),
+                message: Some(message.into()),
+                state: "open".into(),
+                outcome: None,
+                created_ms: 0,
+            };
+            let done = store.lead(LeadWrite::QuestionAsk(Box::new(q))).await;
+            assert_eq!(done.unwrap(), LeadDone::Done);
+        }
+        let ids = |room: &'static str| {
+            let store = store.clone();
+            async move {
+                let open = store.read(move |r| r.questions_in(room)).await.unwrap();
+                open.into_iter().map(|q| q.id).collect::<Vec<_>>()
+            }
+        };
+        assert_eq!(ids("1").await, ["0000aaaa", "0000bbbb"]);
+        assert_eq!(ids("2").await, Vec::<String>::new());
+        let plain = |room: &'static str, answer: &'static str| {
+            let store = store.clone();
+            async move {
+                store
+                    .read(move |r| r.question_reply(room, None, answer))
+                    .await
+                    .unwrap()
+            }
+        };
+        assert!(!plain("1", "51").await, "not recorded yet");
+        let settle = LeadWrite::QuestionSettle {
+            id: "0000aaaa".into(),
+            state: "answered".into(),
+            outcome: "owner message 51: option 1 (a)".into(),
+        };
+        assert_eq!(store.lead(settle).await.unwrap(), LeadDone::Done);
+        assert!(plain("1", "51").await);
+        assert!(!plain("1", "52").await && !plain("2", "51").await);
+        assert_eq!(ids("1").await, ["0000bbbb"]);
     }
 }

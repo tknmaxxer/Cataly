@@ -1186,6 +1186,26 @@ fn question_ask_posts_in_its_thread() {
         !lane_file().contains(id),
         "the button answer belongs to the lead"
     );
+    // A third, now the only open question there: a plain number answers it and goes to the lead.
+    let (said, err) = lead_tool(&mut b, &s, "q-plain", question_input(in_thread(), None));
+    assert!(!err, "{said}");
+    let id = said.split_whitespace().nth(1).unwrap();
+    fake.say(FakeDiscord::message(
+        THREAD,
+        950_000_000_000_000_001,
+        OWNER,
+        "2",
+    ));
+    hub.until(WAIT, || {
+        std::fs::read_to_string(&lead_file)
+            .unwrap()
+            .contains(&format!("this message answers question {id}"))
+            .then_some(())
+    });
+    assert!(
+        !lane_file().contains("950000000000000001"),
+        "the plain answer belongs to the lead"
+    );
     drop(b);
     hub.stop();
 }

@@ -297,8 +297,9 @@ Totals: KEEP 12, SIMPLIFY 8, MERGE 4, DROP 4.
     is being acknowledged, further presses are ignored.
 70. Text answers: the owner replies (Discord reply) to the question message with a value or a JSON map
     of field name to value. If the form accepts plain text, an ordinary owner message in the same
-    channel also counts, but only if exactly one such question is open in that channel and the
-    message is newer than the question; if two are open, the message goes to normal intake.
+    channel also counts, but only if exactly one such question is open in that channel, no open
+    lead question was asked there before the message (EVR req. 37), and the message is newer than
+    the question; if two are open, the message goes to normal intake.
 71. Intake hands matching owner messages to the open question before any other routing and does not
     also treat them as new requests. They still get the read receipt.
 72. Validation: answers up to 2000 characters; JSON maps may name only editable fields; omitted fields

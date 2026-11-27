@@ -233,26 +233,95 @@ impl<T: crate::host::Runtime> super::intake::Intake<T> {
         }
     }
 
-    /// An owner reply to a message bound to an open ledger question records the answer before the
-    /// hand-off, and the hand-off says which question it answered (EVR req. 37).
+    /// The open ledger questions in the room of a plain owner message that were posted before it
+    /// (EVR req. 37); empty for any other message. A question whose post is in doubt counts from
+    /// the time it was recorded.
+    pub(super) async fn asked_before(
+        &self,
+        row: &crate::store::relay::QueueRow,
+        inbound: &crate::relay::Inbound,
+    ) -> Vec<crate::store::lead::QuestionRow> {
+        if !inbound.plain {
+            return Vec::new();
+        }
+        let room = row.room.clone();
+        let open = match self.store.read(move |r| r.questions_in(&room)).await {
+            Ok(open) => open,
+            Err(e) => {
+                crate::log::warn("open questions not read", &[("error", &e)]);
+                return Vec::new();
+            }
+        };
+        open.into_iter()
+            .filter(|q| {
+                let posted = match q.message.as_deref() {
+                    Some(m) => Snowflake::parse(m).map(Snowflake::seq),
+                    None => Some(Snowflake::at_ms(q.created_ms)),
+                };
+                posted.is_some_and(|seq| seq < row.seq)
+            })
+            .collect()
+    }
+
+    /// The question a plain owner message answers: the only open question asked before it in its
+    /// room while no OMP question card is open there (EVR req. 37). Otherwise the line telling the
+    /// lead that nothing was bound and to which question the owner can reply, if any is open.
+    fn plain_question(
+        &self,
+        row: &crate::store::relay::QueueRow,
+        asked: Vec<crate::store::lead::QuestionRow>,
+    ) -> Result<crate::store::lead::QuestionRow, Option<String>> {
+        let card = self.cards.open_in(&row.room);
+        if asked.is_empty() {
+            return Err(None);
+        }
+        if asked.len() == 1 && !card {
+            return asked.into_iter().next().ok_or(None);
+        }
+        let ids: Vec<&str> = asked.iter().map(|q| q.id.as_str()).collect();
+        Err(Some(format!(
+            "{} questions are open in this room (ledger questions {}{}); this plain message \
+             answers none of them and nothing was recorded. If it answers one, ask the owner to \
+             reply to that question's message or press its button",
+            ids.len() + usize::from(card),
+            ids.join(", "),
+            if card { ", and an OMP question" } else { "" }
+        )))
+    }
+
+    /// An owner reply to a message bound to an open ledger question, or a plain owner message
+    /// naming an option of the only question open in its room, records the answer before the
+    /// hand-off, and the hand-off says which question it answered (EVR req. 37). `asked` is
+    /// [`Self::asked_before`] for this message.
     pub(super) async fn ledger_answer(
         &self,
         row: &crate::store::relay::QueueRow,
         mut inbound: crate::relay::Inbound,
+        asked: Vec<crate::store::lead::QuestionRow>,
     ) -> crate::relay::Inbound {
         use super::questions::ledger;
         use crate::store::lead::{LeadDone, LeadWrite};
-        let Some(target) = inbound.reply_to.clone() else {
-            return inbound;
+        let q = match inbound.reply_to.clone() {
+            Some(target) => {
+                let room = row.room.clone();
+                let Ok(Some(q)) = self
+                    .store
+                    .read(move |r| r.question_at(&room, &target))
+                    .await
+                else {
+                    return inbound;
+                };
+                q
+            }
+            None => match self.plain_question(row, asked) {
+                Ok(q) => q,
+                Err(note) => {
+                    inbound.data.extend(note);
+                    return inbound;
+                }
+            },
         };
-        let room = row.room.clone();
-        let Ok(Some(q)) = self
-            .store
-            .read(move |r| r.question_at(&room, &target))
-            .await
-        else {
-            return inbound;
-        };
+        let plain = inbound.reply_to.is_none();
         let text = inbound.text.trim();
         let outcome = match text.parse::<usize>() {
             Ok(n) if (1..=q.options.len()).contains(&n) => {
@@ -264,9 +333,19 @@ impl<T: crate::host::Runtime> super::intake::Intake<T> {
             }
             Ok(n) => {
                 inbound.data.push(format!(
-                    "this reply names option {n} of question {}, which has {} options; nothing was recorded",
+                    "this {} names option {n} of question {}, which has {} options; nothing was recorded",
+                    if plain { "message" } else { "reply" },
                     q.id,
                     q.options.len()
+                ));
+                None
+            }
+            // Only a reply binds text; a plain message may be about something else.
+            Err(_) if plain => {
+                inbound.data.push(format!(
+                    "question {} ({}) is the only question open in this room; this plain message \
+                     names none of its options, so nothing was recorded",
+                    q.id, q.text
                 ));
                 None
             }

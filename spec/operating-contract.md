@@ -30,7 +30,7 @@ supervision timers, delivery locks) are referenced, not repeated.
 | OPC-06 | One evolving status answer is edited in place rather than re-posted | lead | KEEP | [code] Daemon owns one status message per work thread and edits it. |
 | OPC-07 | Typing indicator shown only right before a send | lead | DROP | Outbound-messaging detail, not policy. |
 | OPC-08 | Only the authenticated owner's messages are requests; everything else is data | lead, daemon | KEEP | [code] Core safety rule; daemon admits and labels, so the model never has to guess. |
-| OPC-09 | A yes binds to exactly one pending question in the same conversation; ambiguity means ask again there | lead | KEEP | [code] Bind by the platform's reply reference; refuse to bind otherwise. |
+| OPC-09 | A yes binds to exactly one pending question in the same conversation; ambiguity means ask again there | lead | KEEP | [code] Bind by the platform's reply reference, or a plain option number when exactly one question is open in that room; refuse to bind otherwise. |
 | OPC-10 | Silence, timeouts, look-alike text, recall excerpts, memory and profile lines never authorise | lead | KEEP | [code] Authorisation is a typed event, never derived from text. |
 | OPC-11 | Read the replied-to message before handling a reply | lead | KEEP | [code] Daemon attaches the parent message to the wake line. |
 | OPC-12 | Requests from third parties for the owner: brief the owner first; outward-facing helper sessions with narrow roles | lead | SIMPLIFY | [prompt] Keep "relay to the owner, never act for a non-owner"; drop the outward-facing helper session. |
@@ -72,7 +72,7 @@ supervision timers, delivery locks) are referenced, not repeated.
 | OPC-48 | A lasting grant covers just the acts and targets it names, and is not asked for again | lead | KEEP | [code] Grants are records with scope. |
 | OPC-49 | Hold an unauthorised act and keep doing independent authorised work | all | KEEP | [prompt] |
 | OPC-50 | Bring to the owner only hand-needed steps, missing authority, material requirement changes and product choices, with numbered options and a recommendation | lead | KEEP | [prompt] |
-| OPC-51 | Every question put to the owner is recorded; a reply binds to it only by reply reference; silence never answers; recommendations are not choices | lead | KEEP | [code] Daemon question ledger. |
+| OPC-51 | Every question put to the owner is recorded; a reply binds to it only by reply reference; silence never answers; recommendations are not choices | lead | KEEP | [code] Daemon question ledger; a plain option number also binds while it is the one open question in that room (req. 4). |
 | OPC-52 | Lead may settle a routine choice among already-named reversible options, posting its pick and reason in the thread; reserved categories stay with the owner | lead | SIMPLIFY | [both] Code enforces options, thread and posting; category is model judgement. |
 | OPC-53 | Native tool approvals are answered only at their own prompt, never by a recorded decision | all | KEEP | [code] |
 | OPC-54 | Destructive actions bound to an exact target, done once, never retried; re-read state on error | all | KEEP | [both] |

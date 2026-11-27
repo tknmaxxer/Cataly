@@ -1237,12 +1237,14 @@ impl<T: Runtime> Intake<T> {
         if let Some(step) = self.pipeline.resume(row, &inbound, read_at).await? {
             return Ok(step);
         }
-        // An answer to an open question goes there first (DISC-IN req. 40; DISC-OUT req. 71).
-        if self.answer_by_text(row, &inbound).await {
+        // An answer to an open question goes there first (DISC-IN req. 40; DISC-OUT req. 71). A
+        // plain message binds only while one question of either kind is open (EVR req. 37).
+        let asked = self.asked_before(row, &inbound).await;
+        if self.answer_by_text(row, &inbound, !asked.is_empty()).await {
             self.pipeline.taken(row).await?;
             return Ok(Step::Done);
         }
-        let inbound = self.ledger_answer(row, inbound).await;
+        let inbound = self.ledger_answer(row, inbound, asked).await;
         let previous = self
             .store
             .read(|r| r.meta("owner_last_ms"))

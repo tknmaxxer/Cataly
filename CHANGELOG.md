@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.7 (Unreleased)
+
+- You no longer have to reply to the exact question message to answer the lead. A plain number
+  sent in the question's channel or thread (not a reply) answers the lead's recorded question
+  when it is the only one open there and was asked before your message, like a reply or a button
+  press with that number: the ledger records it, the question loses its buttons and the lead is
+  told which question it answered, even in a thread a lane owns. Plain text that names no option
+  is not recorded; the lead is told which question is open and may record it by hand only if it
+  plainly answers it. With several questions open (including an OMP question card), a plain
+  message answers none and the lead is told which are open, so it can ask you to reply to one or
+  press its button. Before, a plain "1" was handed to the lead as an ordinary message, and the
+  lead's own `question.choose` was refused for owner-only questions.
+
 ## 0.2.6 (2026-11-27)
 
 - The npm/Bun `cataly` launcher now takes signals before it starts the binary. On a busy machine a

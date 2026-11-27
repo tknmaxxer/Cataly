@@ -157,6 +157,14 @@ impl Cards {
         self.lock().skipped.retain(|d| live.contains(d.as_str()));
     }
 
+    /// Whether a question card other than an approval is open in `room`.
+    pub(super) fn open_in(&self, room: &str) -> bool {
+        self.lock()
+            .open
+            .values()
+            .any(|c| c.kind != Kind::Approval && c.channel.to_string() == room)
+    }
+
     fn by_message(&self, message: Snowflake) -> Option<Card> {
         self.lock()
             .open
@@ -1211,8 +1219,14 @@ impl<T: Runtime> Intake<T> {
 
     /// An owner message that answers an open question (DISC-OUT req. 70-73): a reply to the question
     /// (or to one part of it), or a plain message in its channel when exactly one question is open
-    /// there. On a card with several parts it answers one part; the others stay open.
-    pub(super) async fn answer_by_text(&self, row: &QueueRow, inbound: &Inbound) -> bool {
+    /// there and no question of the lead's ledger was asked there before it (`ledger_open`, EVR
+    /// req. 37). On a card with several parts it answers one part; the others stay open.
+    pub(super) async fn answer_by_text(
+        &self,
+        row: &QueueRow,
+        inbound: &Inbound,
+        ledger_open: bool,
+    ) -> bool {
         let words = typed::words(self.language);
         let target = {
             let inner = self.cards.lock();
@@ -1235,7 +1249,7 @@ impl<T: Runtime> Intake<T> {
             });
             match (replied, here.as_slice()) {
                 (Some((c, part)), _) => Some(((*c).clone(), part, true)),
-                (None, [one]) if inbound.plain && row.seq > one.message.seq() => {
+                (None, [one]) if inbound.plain && !ledger_open && row.seq > one.message.seq() => {
                     Some(((*one).clone(), None, false))
                 }
                 _ => None,

@@ -1811,6 +1811,116 @@ fn a_reply_closes_the_question_buttons_and_nothing_is_chosen_by_itself() {
     assert!(hub.stop().success());
 }
 
+/// A plain owner message (not a reply) naming an option answers the question when it is the only
+/// one open in its room and was asked before the message, and closes its buttons. Plain text, a
+/// message older than the question and a plain number while two are open record nothing, and the
+/// lead is told which questions are open; a reply still binds while several are open.
+#[test]
+fn a_plain_number_answers_the_only_open_question_in_its_room() {
+    let fake = FakeDiscord::start();
+    let mut hub = relay_hub(&fake, &[], "");
+    hub.start();
+    ready(&hub);
+    let mut lead = ToolBridge::connect(&hub);
+    let (first, first_message) =
+        record_question(&mut lead, &json!({ "text": "One?", "options": ["a", "b"] }));
+    let handed = |id: u64| {
+        let id = id.to_string();
+        hub.until(WAIT, || {
+            requests(&hub).into_iter().find(|r| r.contains(&id))
+        })
+    };
+    let open = || ("open".to_string(), None);
+
+    // Older than the question: an ordinary message.
+    fake.say(FakeDiscord::message(
+        CH,
+        800_000_000_000_000_501,
+        OWNER,
+        "1",
+    ));
+    let old = handed(800_000_000_000_000_501);
+    assert!(!old.contains(&first), "{old}");
+    assert_eq!(ledger(&hub, &first), open());
+
+    // Text names no option: nothing is recorded, the lead hears which question is open.
+    fake.say(FakeDiscord::message(
+        CH,
+        950_000_000_000_000_001,
+        OWNER,
+        "also fix the docs",
+    ));
+    let text = handed(950_000_000_000_000_001);
+    assert!(
+        text.contains(&format!(
+            "question {first} (One?) is the only question open in this room"
+        )),
+        "{text}"
+    );
+    assert_eq!(ledger(&hub, &first), open());
+
+    // Two open: a plain number answers neither.
+    let (second, second_message) =
+        record_question(&mut lead, &json!({ "text": "Two?", "options": ["c", "d"] }));
+    fake.say(FakeDiscord::message(
+        CH,
+        960_000_000_000_000_002,
+        OWNER,
+        "1",
+    ));
+    let both = handed(960_000_000_000_000_002);
+    assert!(
+        both.contains(&format!(
+            "2 questions are open in this room (ledger questions {first}, {second})"
+        )),
+        "{both}"
+    );
+    assert_eq!(ledger(&hub, &first), open());
+    assert_eq!(ledger(&hub, &second), open());
+
+    // A reply still binds while several are open.
+    fake.say(reply_to(970_000_000_000_000_003, &second_message, "2"));
+    let replied = handed(970_000_000_000_000_003);
+    assert!(
+        replied.contains(&format!(
+            "this message answers question {second} (Two?): option 2 (d)"
+        )),
+        "{replied}"
+    );
+
+    // One left: a plain number answers it.
+    fake.say(FakeDiscord::message(
+        CH,
+        980_000_000_000_000_004,
+        OWNER,
+        "2",
+    ));
+    let plain = handed(980_000_000_000_000_004);
+    assert!(
+        plain.contains(&format!(
+            "this message answers question {first} (One?): option 2 (b)"
+        )),
+        "{plain}"
+    );
+    let (state, outcome) = ledger(&hub, &first);
+    assert_eq!(state, "answered");
+    assert!(
+        outcome
+            .as_deref()
+            .unwrap()
+            .ends_with("owner message 980000000000000004: option 2 (b)")
+    );
+    let edited = closed(&fake, &first_message);
+    assert!(
+        edited["content"]
+            .as_str()
+            .unwrap()
+            .contains("Answered by the owner: 2. b"),
+        "{edited}"
+    );
+    assert!(hub.stop().success());
+}
+
 /// Settling a question with the lead's tool (an answer recorded by hand, a withdrawal) closes its
 /// buttons too, and a press after that is refused.
 #[test]

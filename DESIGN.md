@@ -487,8 +487,9 @@ relay destinations, or kept locally. Messenger posts never mention anyone and pa
   One dispatcher checks it; handlers never re-derive authority from text (OPC-10).
 - A request is admitted only through a relay's owner gate. Text inside it that the owner did not write is
   passed in a separate data field (OPC-08, OPC-11).
-- Authorisations come only from an owner message or an owner button press bound by reply reference (OPC-05,
-  OPC-09, OPC-51). Timeouts, silence, memory and recommendations never authorise.
+- Authorisations come only from an owner message or an owner button press bound by reply reference, or from
+  a plain owner option number while exactly one question is open in its room and was asked before it
+  (OPC-05, OPC-09, OPC-51; EVR req. 37). Timeouts, silence, memory and recommendations never authorise.
 - Lane tools cannot open, close, merge, post to the owner or grant themselves exceptions (OPC-57, LANE req. 74).
 - The lead's goal tool may not create goals (the lead idles without one, OPC-36); lane goals are set by the hub
   from the brief and done checks. OMP itself refuses a second goal (docs).
