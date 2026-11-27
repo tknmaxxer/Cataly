@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.6 (Unreleased)
+
+- The lead can open lanes through its tool. The `cataly_lead` tool schema declared none of the
+  lane inputs that are not text, so a model sent `checks`, `worktree`, `ceilings`, `after`,
+  `look_only`, `preview` and the rest as strings, and every `lane.open` from the lead failed with
+  `the done checks must be a list of signals` or `expected struct Worktree`. The schema now gives
+  each of them its type.
+
 ## 0.2.5 (2026-11-27)
 
 - **Remote workers, phase 1 (enrolment and connection).** `cataly worker add user@host[:port]`

@@ -23,7 +23,47 @@ pub(crate) const LEAD_TOOL: &str = "cataly_lead";
 pub(crate) fn definition() -> Value {
     let text = |d: &str| json!({ "type": "string", "description": d });
     let int = |d: &str| json!({ "type": "integer", "description": d });
-    json!({
+    // Lane inputs that are not text: undeclared, a model sends them as strings (LANE req. 2).
+    // A separate literal keeps `json!` under the recursion limit.
+    let lane = json!({
+        "checks": {
+            "type": "array",
+            "description": "lane.open, lane.item-add, lane.item-import: the done signals",
+            "items": {
+                "type": "object",
+                "properties": { "kind": text("pr_merged|issue_closed|command|file|web|pr_policy") },
+                "required": ["kind"]
+            }
+        },
+        "worktree": {
+            "type": "object",
+            "description": "lane.open: the lane works in a new git worktree",
+            "properties": {
+                "path": text("the new worktree's directory"),
+                "branch": text("the new branch"),
+                "base": text("the commit or branch it starts from")
+            },
+            "required": ["path", "branch", "base"]
+        },
+        "ceilings": {
+            "type": "object",
+            "description": "lane.open: the lane's limits, each a number or \"off\"",
+            "properties": {
+                "minutes": { "type": ["number", "string"] },
+                "tokens": { "type": ["number", "string"] },
+                "cost": { "type": ["number", "string"] }
+            }
+        },
+        "after": { "type": "array", "items": { "type": "string" }, "description": "lane.open: predecessor lane keys" },
+        "look_only": { "type": "boolean", "description": "lane.open: the lane only looks, never edits" },
+        "preview": { "type": "boolean", "description": "lane.open: show the launch without starting it" },
+        "priority": int("lane.open, lane.item-add, lane.priority: 1 to 9"),
+        "expires_hours": { "type": "number", "description": "lane.open with after: a queued launch expires" },
+        "steer": { "type": "boolean", "description": "lane.send: steer the running turn" },
+        "count": int("lane.read: how many entries"),
+        "dry_run": { "type": "boolean", "description": "lane.merge: check without merging" }
+    });
+    let mut def = json!({
         "name": LEAD_TOOL,
         "label": "Cataly",
         "description": "Cataly's records and watches. op is one of: requests (all?), request.add (title, source, thread?), \
@@ -88,7 +128,13 @@ pub(crate) fn definition() -> Value {
             },
             "required": ["op"]
         }
-    })
+    });
+    if let (Some(props), Value::Object(lane)) =
+        (def["parameters"]["properties"].as_object_mut(), lane)
+    {
+        props.extend(lane);
+    }
+    def
 }
 
 fn s<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -554,4 +600,37 @@ pub(crate) async fn recap(hub: &Hub) -> String {
         out.truncate(end);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::definition;
+
+    /// A model fills an undeclared input as a string, so every lane input that is not text has
+    /// its own type here; `checks` as a string once made every lead `lane.open` fail.
+    #[test]
+    fn lane_inputs_that_are_not_text_are_declared_with_their_type() {
+        let def = definition();
+        let props = &def["parameters"]["properties"];
+        for (name, kind) in [
+            ("checks", "array"),
+            ("worktree", "object"),
+            ("ceilings", "object"),
+            ("after", "array"),
+            ("look_only", "boolean"),
+            ("preview", "boolean"),
+            ("priority", "integer"),
+            ("expires_hours", "number"),
+            ("steer", "boolean"),
+            ("count", "integer"),
+            ("dry_run", "boolean"),
+        ] {
+            assert_eq!(props[name]["type"], kind, "{name}");
+        }
+        assert_eq!(props["checks"]["items"]["type"], "object");
+        assert_eq!(
+            props["worktree"]["required"],
+            serde_json::json!(["path", "branch", "base"])
+        );
+    }
 }
