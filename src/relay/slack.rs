@@ -274,7 +274,7 @@ impl Api {
             method: verb,
             path: &path,
             headers,
-            json,
+            json: json.map(Into::into),
             kind,
         };
         let writes = kind != Kind::Read;
@@ -618,7 +618,7 @@ async fn transfer(api: &Api, url: &str, bytes: Vec<u8>) -> Result<(), ApiError> 
             CONTENT_TYPE,
             HeaderValue::from_static("application/octet-stream"),
         )],
-        json: Some(bytes),
+        json: Some(bytes.into()),
         kind: Kind::Once,
     };
     match http::call(&base, &req, Policy::TRANSFER, |_| {}).await {
