@@ -14,7 +14,7 @@ struct Migration {
     additive: bool,
 }
 
-const MIGRATIONS: [Migration; 12] = [
+const MIGRATIONS: [Migration; 13] = [
     Migration {
         sql: include_str!("migrations/0001_init.sql"),
         additive: false,
@@ -64,6 +64,11 @@ const MIGRATIONS: [Migration; 12] = [
         sql: include_str!("migrations/0012_outbox_turns.sql"),
         // An old reader posts a later turn's parts like answer parts after the answer; the reader
         // floor stays at 11.
+        additive: true,
+    },
+    Migration {
+        sql: include_str!("migrations/0013_lead_anchor_history.sql"),
+        // Clears or rewords an 0011 ambiguity hold only; old readers see a plain anchor.
         additive: true,
     },
 ];
@@ -158,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn the_additive_outbox_turns_migration_keeps_the_reader_floor_at_the_lead_anchor() {
+    fn the_additive_later_migrations_keep_the_reader_floor_at_the_lead_anchor() {
         let dir = scratch("schema-floor");
         let mut conn = Connection::open(dir.join("s.db")).unwrap();
         migrate(&mut conn, &dir.join("backup")).unwrap();
@@ -167,7 +172,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!((latest(), floor.as_str()), (12, "11"));
+        assert_eq!((latest(), floor.as_str()), (13, "11"));
     }
 
     #[test]

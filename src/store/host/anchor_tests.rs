@@ -89,23 +89,40 @@ fn pins_select_older_bindings_and_failed_fresh_requires_owner_choice() {
 }
 
 #[test]
-fn inconsistent_binding_locations_hold_instead_of_guessing() {
+fn a_changed_folder_is_history_and_a_second_transcript_holds_a_pinned_id() {
     let mut db = database();
     attempt(&mut db, "a", "fresh", 1);
     bind(&mut db, "a", "A", 1);
     attempt(&mut db, "b", "resume", 2);
     bind(&mut db, "b", "A", 2);
     db.execute(
-        "UPDATE lead_bindings SET cwd = '/other' WHERE handle = 'b'",
+        "UPDATE lead_bindings SET cwd = '/other', runtime = 'tern' WHERE handle = 'a'",
         [],
     )
     .unwrap();
+    attempt(&mut db, "c", "fresh", 3);
+    bind(&mut db, "c", "C", 3);
+    let selected = Reads(db).lead_target(Some("A")).unwrap();
+    assert!(selected.hold.is_none(), "{selected:?}");
+    assert_eq!(selected.row.unwrap().handle, "b");
+    let mut db = database();
+    attempt(&mut db, "a", "fresh", 1);
+    bind(&mut db, "a", "A", 1);
+    attempt(&mut db, "b", "resume", 2);
+    bind(&mut db, "b", "A", 2);
+    db.execute(
+        "UPDATE lead_bindings SET session_file = '/other.jsonl' WHERE handle = 'a'",
+        [],
+    )
+    .unwrap();
+    attempt(&mut db, "c", "fresh", 3);
+    bind(&mut db, "c", "C", 3);
     let tx = db.transaction().unwrap();
-    maintain(&tx, 3).unwrap();
+    maintain(&tx, 4).unwrap();
     tx.commit().unwrap();
     let selected = Reads(db).lead_target(Some("A")).unwrap();
     assert!(selected.row.is_none());
-    assert!(selected.hold.unwrap().contains("2 verified identities"));
+    assert!(selected.hold.unwrap().contains("2 proven transcripts"));
 }
 
 #[test]
@@ -306,4 +323,132 @@ fn explicit_fresh_binding_supersedes_only_older_unknown_attempt_holds() {
         )
         .unwrap();
     assert!(reads.lead_target(None).unwrap().hold.is_some());
+}
+
+/// 0.2.6 lead start rows `(handle, id, file, cwd, mode)` in order, bound as 0.2.6 recorded them
+/// (no `lead_bindings` yet).
+fn history(db: &mut Connection, rows: &[(&str, &str, &str, &str, &str)]) {
+    for (now, &(handle, id, file, cwd, mode)) in (1..).zip(rows) {
+        attempt(db, handle, mode, now);
+        db.execute(
+            "UPDATE sessions SET session_id = ?2, session_file = ?3, cwd = ?4, state = 'stopped', \
+             expected_id = CASE mode WHEN 'resume' THEN ?2 END, \
+             expected_file = CASE mode WHEN 'resume' THEN ?3 END WHERE handle = ?1",
+            [handle, id, file, cwd],
+        )
+        .unwrap();
+    }
+}
+
+/// 0.2.7 migrated the 0.2.6 history (0011 and 0012, schema 12); this binary opens that store.
+fn upgrade(db: &mut Connection, name: &str) {
+    migrate_history(db);
+    db.execute_batch("PRAGMA user_version = 12").unwrap();
+    let backups = crate::sys::fs::tests::scratch(name);
+    crate::store::schema::migrate(db, &backups).unwrap();
+}
+
+/// The owner's history: conversation A, then B started in `~` and resumed 11 times in `~/tmp`
+/// (same transcript, same runtime). The upgrade resumes B in `~/tmp`, and B binds again anywhere.
+#[test]
+fn an_upgrade_resumes_the_newest_binding_of_a_conversation_whose_folder_changed() {
+    let mut db = database();
+    let tmp: Vec<String> = (0..11).map(|n| format!("b-tmp-{n}")).collect();
+    let mut rows = vec![
+        ("a", "A", "/sessions/A.jsonl", "/home/o", "fresh"),
+        ("b", "B", "/sessions/B.jsonl", "/home/o", "fresh"),
+    ];
+    let b = "/sessions/B.jsonl";
+    for handle in &tmp {
+        rows.push((handle.as_str(), "B", b, "/home/o/tmp", "resume"));
+    }
+    history(&mut db, &rows);
+    upgrade(&mut db, "anchor-changed-cwd");
+    let mut reads = Reads(db);
+    let current = reads.lead_target(None).unwrap();
+    assert!(current.hold.is_none(), "{current:?}");
+    let row = current.row.unwrap();
+    assert_eq!(
+        (row.handle.as_str(), row.cwd.as_str()),
+        ("b-tmp-10", "/home/o/tmp")
+    );
+    let pinned = reads.lead_target(Some("B")).unwrap();
+    assert!(pinned.hold.is_none(), "{pinned:?}");
+    assert_eq!(pinned.row.unwrap().handle, "b-tmp-10");
+    // The next resume binds B in yet another folder.
+    attempt(&mut reads.0, "b-next", "resume", 20);
+    bind(&mut reads.0, "b-next", "B", 20);
+    let next = reads.lead_target(None).unwrap();
+    assert!(next.hold.is_none(), "{next:?}");
+    assert_eq!(next.row.unwrap().handle, "b-next");
+}
+
+/// Two transcripts claiming the anchored ID still hold, naming the anchored one; the owner's
+/// resume of exactly that transcript binds and lifts the hold, and the other one never binds.
+#[test]
+fn two_transcripts_for_the_anchored_id_hold_until_its_anchored_transcript_binds() {
+    let mut db = database();
+    history(
+        &mut db,
+        &[
+            ("a", "A", "/sessions/A.jsonl", "/home/o", "fresh"),
+            ("b-old", "B", "/sessions/B-copy.jsonl", "/home/o", "fresh"),
+            ("b", "B", "/sessions/B.jsonl", "/home/o/tmp", "resume"),
+        ],
+    );
+    upgrade(&mut db, "anchor-two-files");
+    let mut reads = Reads(db);
+    let current = reads.lead_target(None).unwrap();
+    let hold = current.hold.clone().unwrap();
+    assert!(hold.starts_with("ambiguous lead binding history"), "{hold}");
+    assert!(
+        hold.contains("`cataly lead start` resumes") && hold.contains("/sessions/B.jsonl"),
+        "{hold}"
+    );
+    assert!(!hold.contains("--fresh"), "{hold}");
+    assert_eq!(current.row.unwrap().handle, "b");
+    let pinned = reads.lead_target(Some("B")).unwrap();
+    assert_eq!(pinned.hold.as_deref(), Some(hold.as_str()));
+    assert_eq!(pinned.row.unwrap().handle, "b");
+    attempt(&mut reads.0, "copy", "resume", 10);
+    let tx = reads.0.transaction().unwrap();
+    assert!(
+        bound(
+            &tx,
+            &SessionUpdate {
+                handle: "copy".into(),
+                session_id: Some("B".into()),
+                session_file: Some("/sessions/B-copy.jsonl".into()),
+                ..SessionUpdate::default()
+            },
+            10
+        )
+        .is_err()
+    );
+    tx.rollback().unwrap();
+    attempt(&mut reads.0, "b-resumed", "resume", 11);
+    bind(&mut reads.0, "b-resumed", "B", 11);
+    let resumed = reads.lead_target(None).unwrap();
+    assert!(resumed.hold.is_none(), "{resumed:?}");
+    assert_eq!(resumed.row.unwrap().handle, "b-resumed");
+}
+
+/// An older conversation's two transcripts never hold the current, unrelated lead.
+#[test]
+fn an_old_conversations_two_transcripts_do_not_hold_the_current_lead() {
+    let mut db = database();
+    history(
+        &mut db,
+        &[
+            ("a", "A", "/sessions/A.jsonl", "/home/o", "fresh"),
+            ("a-copy", "A", "/sessions/A-copy.jsonl", "/home/o", "fresh"),
+            ("b", "B", "/sessions/B.jsonl", "/home/o", "fresh"),
+        ],
+    );
+    upgrade(&mut db, "anchor-old-oddity");
+    let reads = Reads(db);
+    let current = reads.lead_target(None).unwrap();
+    assert!(current.hold.is_none(), "{current:?}");
+    assert_eq!(current.row.unwrap().handle, "b");
+    assert!(reads.lead_target(Some("A")).unwrap().hold.is_some());
 }

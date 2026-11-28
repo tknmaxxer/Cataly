@@ -287,7 +287,9 @@ the lead session through Cataly commands, and the Cataly OMP extension running i
 81. The lead resumes its resume anchor (103): the last proven binding, whatever attempts failed since. It starts
     fresh only the first time ever or on the owner's explicit fresh request. A missing, unsafe, oversized or
     unverified transcript, an ambiguous history or an unproven exit of the earlier process holds the lead with the
-    precise check named; it never starts fresh by itself.
+    precise check named; it never starts fresh by itself. A history is ambiguous only when the anchored session id
+    was bound to more than one transcript file; a changed working folder or runtime is not. The owner's plain start
+    lifts that hold by resuming the anchored transcript once it verifies.
 82. A deployment may require a specific lead session id. Then the lead must resume exactly that earlier binding, even
     behind newer attempts or conversations, or the daemon holds the lead; a fresh lead is never substituted. A pin
     and a fresh request together are refused.

@@ -657,7 +657,7 @@ impl<R: Runtime> Lead<R> {
                     waking = self.wants_wake().await;
                     if waking || self.wants_autostart() {
                         *self.restarts() = Restarts::default();
-                        match self.launch(false, None).await {
+                        match self.launch(false, false, None).await {
                             Ok(view) => {
                                 if waking {
                                     let session = view.session.and_then(|s| s.session_id);
@@ -897,13 +897,15 @@ impl<R: Runtime> Lead<R> {
             .map_err(|e| e.to_string())?;
         *self.restarts() = Restarts::default();
         self.recovery().end("bound", None).await?;
-        self.launch(fresh, None).await
+        self.launch(fresh, true, None).await
     }
 
-    /// Under the start lock; `again` is the session an already scheduled restart resumes.
+    /// Under the start lock; `again` is the session an already scheduled restart resumes. `owner`
+    /// is the owner's own `lead start`, which confirms an ambiguous anchor (see [`Self::target`]).
     async fn launch(
         self: &Arc<Self>,
         fresh: bool,
+        owner: bool,
         again: Option<(String, PathBuf)>,
     ) -> Result<View, String> {
         let _ended = Launched(&self.launched);
@@ -934,7 +936,7 @@ impl<R: Runtime> Lead<R> {
             how,
         } = match again {
             Some((id, file)) => self.again(id, file, default).await?,
-            None => self.target(&settings, fresh, default).await?,
+            None => self.target(&settings, fresh, owner, default).await?,
         };
         if let Some(id) = &expected
             && let Err(reason) = self
@@ -1043,15 +1045,20 @@ impl<R: Runtime> Lead<R> {
             .map_err(|e| e.to_string())
     }
 
-    /// Fresh or exact resume target from the durable binding resolver and owner intent.
+    /// Fresh or exact resume target from the durable binding resolver and owner intent. The owner's
+    /// own start resumes an anchor held only as ambiguous once its transcript verifies.
     async fn target(
         &self,
         settings: &crate::config::session::LeadSettings,
         fresh: bool,
+        owner: bool,
         default: PathBuf,
     ) -> Result<Chosen, String> {
         let selected = self.resolve(settings.session_id.clone()).await?;
-        if !fresh && let Some(reason) = selected.hold {
+        if !fresh
+            && let Some(reason) = selected.hold
+            && !(owner && crate::store::host::anchor::ambiguous(&reason))
+        {
             self.set_phase(Phase::Held, Some(reason.clone()));
             return Err(reason);
         }
@@ -1324,7 +1331,7 @@ impl<R: Runtime> Lead<R> {
             return Err("lead target changed during recovery; scheduled retry cancelled".into());
         }
         settings.session_id = Some(id);
-        let chosen = self.target(&settings, false, default).await?;
+        let chosen = self.target(&settings, false, false, default).await?;
         match &chosen.target {
             Target::Resume(selected) if selected == &file => Ok(chosen),
             Target::Fresh(_) | Target::Resume(_) => {
@@ -1469,7 +1476,10 @@ impl<R: Runtime> Lead<R> {
             );
             return;
         }
-        match self.launch(false, Some((id.clone(), file.clone()))).await {
+        match self
+            .launch(false, false, Some((id.clone(), file.clone())))
+            .await
+        {
             Ok(_) => log::info("lead restarted", &[("session", &id)]),
             Err(reason) => {
                 log::warn("lead restart failed", &[("reason", &reason)]);

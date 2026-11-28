@@ -1011,6 +1011,101 @@ fn a_failed_fresh_start_keeps_the_old_conversation_held_for_the_owner() {
     w.no_orphans();
 }
 
+/// Rewrites a stopped hub's store as 0.2.7 left a 0.2.6 history: the anchored conversation also
+/// bound earlier in another folder on `file`, 0011's ambiguity hold, schema 12.
+fn as_0_2_7_held(hub: &TestHub, file: &str) {
+    let db = rusqlite::Connection::open(hub.state().join("cataly.db")).unwrap();
+    db.busy_timeout(Duration::from_secs(10)).unwrap();
+    db.execute(
+        "INSERT INTO sessions (handle, role, runtime, cwd, name, model, mode, state, session_id, \
+         session_file, started_ms, updated_ms) \
+         SELECT 'older', role, runtime, '/elsewhere', name, model, 'fresh', 'stopped', session_id, \
+         ?1, 0, 0 FROM sessions WHERE handle = (SELECT handle FROM lead_anchor)",
+        [file],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO lead_bindings (handle, session_id, session_file, cwd, runtime, provenance, bound_ms) \
+         SELECT 'older', session_id, ?1, '/elsewhere', runtime, 'migrated exact binding', 0 \
+         FROM lead_bindings WHERE handle = (SELECT handle FROM lead_anchor)",
+        [file],
+    )
+    .unwrap();
+    db.execute_batch(
+        "UPDATE lead_anchor SET hold = 'ambiguous lead binding history'; PRAGMA user_version = 12;",
+    )
+    .unwrap();
+}
+
+/// A 0.2.7 store held as ambiguous only because the lead's folder changed is repaired when the
+/// hub opens it: the lead resumes the same conversation by itself.
+#[test]
+fn a_0_2_7_store_held_for_a_changed_folder_resumes_the_conversation() {
+    let mut w = wrapped("", None);
+    let first = original(&mut w);
+    let (id, file) = (
+        first["session"]["session_id"].clone(),
+        first["session"]["session_file"].clone(),
+    );
+    assert!(w.hub.stop().success());
+    as_0_2_7_held(&w.hub, file.as_str().unwrap());
+    w.hub.start();
+    let resumed = live(&w.hub, &Value::Null);
+    assert_eq!(resumed["session"]["session_id"], id, "{resumed}");
+    assert_eq!(resumed["session"]["session_file"], file, "{resumed}");
+    assert_eq!(resumed["anchor"]["session_id"], id, "{resumed}");
+    assert!(w.hub.cli(&["lead", "send", "REPAIRED"]).status.success());
+    w.hub.until(Duration::from_secs(20), || {
+        (user_entries(&file, "REPAIRED") == 1).then_some(())
+    });
+    assert!(w.hub.stop().success());
+    assert_eq!(session_files(&file), 1, "no fresh conversation was made");
+    w.no_orphans();
+}
+
+/// Two transcripts recorded for the anchored conversation hold the lead, and the hold names the
+/// way back: the owner's plain `lead start` resumes the anchored transcript once it verifies, and
+/// later starts need no confirmation.
+#[test]
+fn two_transcripts_for_the_lead_hold_until_a_plain_lead_start_resumes_the_anchored_one() {
+    let mut w = wrapped("", None);
+    let first = original(&mut w);
+    let (id, file) = (
+        first["session"]["session_id"].clone(),
+        first["session"]["session_file"].clone(),
+    );
+    assert!(w.hub.stop().success());
+    as_0_2_7_held(&w.hub, "/elsewhere/copy.jsonl");
+    w.hub.start();
+    assert!(w.hub.cli(&["lead", "send", "WAITING"]).status.success());
+    let v = held(&w.hub, 30);
+    let reason = v["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.contains("`cataly lead start` resumes") && reason.contains(file.as_str().unwrap()),
+        "{v}"
+    );
+    assert_eq!(v["anchor"]["session_id"], id, "{v}");
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(lead_view(&w.hub)["phase"], "held");
+    assert!(w.starts("resume").is_empty(), "never resumed unconfirmed");
+    let out = w.hub.cli(&["lead", "start"]);
+    assert!(out.status.success(), "{out:?}");
+    let resumed = live(&w.hub, &Value::Null);
+    assert_eq!(resumed["session"]["session_id"], id, "{resumed}");
+    assert_eq!(resumed["session"]["session_file"], file, "{resumed}");
+    w.hub.until(Duration::from_secs(20), || {
+        (user_entries(&file, "WAITING") == 1).then_some(())
+    });
+    assert!(w.hub.stop().success());
+    w.hub.start();
+    let again = live(&w.hub, &Value::Null);
+    assert_eq!(again["session"]["session_file"], file, "{again}");
+    assert!(w.hub.stop().success());
+    assert_eq!(user_entries(&file, "WAITING"), 1, "delivered once");
+    assert_eq!(session_files(&file), 1, "no fresh conversation was made");
+    w.no_orphans();
+}
+
 /// A sleeping lead woken by the owner on a slow resume. Ready after 20 s (past the old 15 s limit,
 /// within the 60 s deadline) binds A on that attempt; a resume that never gets ready fails at the
 /// deadline and is retried under backoff onto A. Each wake delivers the owner's message, and the
