@@ -890,7 +890,8 @@ mod tests {
             // Usage requests run nothing.
             "cataly --help 2>&1 | grep -n setup",
             "cataly setup --help",
-            "cataly lane close x -h",
+            "cataly lane close -h",
+            "cataly job run --help",
             // Arguments and comments.
             "git commit -m \"make cataly update faster\"",
             "git commit -m 'note: $(cataly update) and `cataly update`'",
